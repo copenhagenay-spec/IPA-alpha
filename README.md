@@ -1,19 +1,17 @@
 # IPA Assistant
 
-Intelligent Personal Assistant using Vosk.
+Offline personal assistant for Windows using Vosk (speech to text).
 
-## IPA (No Terminal)
-
-### Quick Start
+## Quick Start
 
 1. Install Python 3.10+:
    https://www.python.org/downloads/
-2. Double‑click:
-   `ipa/run_ipa.cmd`
-3. The first‑run wizard will open:
+2. Double-click:
+   `run_ipa.cmd`
+3. The first-run wizard will open:
    - Choose **Language** (English or Spanish)
-   - Choose **Mode** (Hold‑to‑talk, Hotkey, or Timed)
-   - Click **Install Dependencies** (one‑time)
+   - Choose **Mode** (Hold-to-talk, Hotkey, or Timed)
+   - Click **Install Dependencies** (one-time)
    - If you don't have a model yet, click **Download English/Spanish Model**
    - Optional: **Import Steam Apps**
    - Click **Finish**
@@ -23,32 +21,38 @@ IPA will start listening in the background after the wizard finishes.
 ## Uninstall
 
 Double-click:
-`ipa/uninstall.cmd`
+`uninstall.cmd`
 
 This removes the `data` folder (model, logs, settings). To fully remove IPA,
-delete the `ipa` folder.
+delete the IPA folder.
 
 ## Files
 
-- `ipa/data/model` holds the Vosk model
-- `ipa/data/model/en` English model
-- `ipa/data/model/es` Spanish model (if installed)
-- `ipa/data/assets` holds icons
-- `ipa/data/logs` holds crash logs
-- `ipa/data/config.json` holds your settings
+- `data/model` holds the Vosk models
+- `data/model/en` English model
+- `data/model/es` Spanish model (if installed)
+- `data/assets` holds icons
+- `data/logs` holds crash logs
+- `data/config.json` holds your settings
 
 ## Features
 
 - Open apps: say `open <app>`
+- App aliases: say an alias to open a target app
+- Custom actions: phrase -> command
 - Web search: say `search for <query>`
+- YouTube: open, search, play/pause/next/back
+- Spotify media controls: `play`, `pause`, `skip`, `back`
 - Timers: say `set a timer 5 minutes`
-- Spotify media controls: say `play`, `pause`, `skip song`
-- Steam import: adds games as `open <game>`
+- Notes: `note ...`, `open notes`, `delete last note`, `clear all notes`
+- Sleep PC: `sleep computer`
+- System audio mute/unmute: `sound on`, `sound off`
+- Tray controls: show/hide/start/stop/restart/exit
 - English and Spanish recognition (per-language models)
 
 ## Steam Import
 
-Use the "Import Steam" button in the Apps section to auto-add games
+Use the **Import Steam** button in the Apps section to auto-add games
 from your Steam library as voice commands.
 
 ## Models
@@ -56,8 +60,8 @@ from your Steam library as voice commands.
 Place models in:
 
 ```
-ipa/data/model/en/<model-folder>
-ipa/data/model/es/<model-folder>
+data/model/en/<model-folder>
+data/model/es/<model-folder>
 ```
 
 Small English model example:
@@ -68,5 +72,5 @@ Small Spanish model example:
 
 ## Tips
 
-- If audio isn’t detected, check Windows microphone permissions.
-- If a command doesn’t trigger, check **Last Transcript** for misheard words and add aliases.
+- If audio isn't detected, check Windows microphone permissions.
+- If a command doesn't trigger, check **Last Transcript** for misheard words and add aliases.
