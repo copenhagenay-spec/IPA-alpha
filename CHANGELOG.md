@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.84.6.1
+- Added "start youtube", "start you tube", and "start your job" as YouTube trigger phrases.
+
 ## 0.84.6
 - Expanded mishear corrections with additional Scottish English accent variants for YouTube and other commands.
 - General fix for "open the <app>" — leading "the" is now stripped before app lookup.
