@@ -671,7 +671,9 @@ def _ask_ai(question: str) -> bool:
         _tts_speak("No AI API key configured. Please add your Groq key in settings.")
         return False
 
+    today = time.strftime("%B %d, %Y")
     prompt = (
+        f"Today's date is {today}.\n\n"
         f"{question.strip()}\n\n"
         "Answer in 2 to 3 sentences maximum. Be direct and concise."
     )
@@ -682,37 +684,84 @@ def _ask_ai(question: str) -> bool:
             import urllib.request
             import urllib.error
 
-            if api_key.startswith("sk-"):
+            if api_key.startswith("sk-ant-"):
+                # Anthropic / Claude
+                url = "https://api.anthropic.com/v1/messages"
+                body = json.dumps({
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 150,
+                    "messages": [{"role": "user", "content": prompt}],
+                }).encode("utf-8")
+                req = urllib.request.Request(
+                    url,
+                    data=body,
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "User-Agent": "IPA-Assistant/1.0",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                answer = (
+                    data.get("content", [{}])[0]
+                    .get("text", "")
+                    .strip()
+                )
+            elif api_key.startswith("sk-"):
+                # OpenAI
                 url = "https://api.openai.com/v1/chat/completions"
-                model = "gpt-4o-mini"
+                body = json.dumps({
+                    "model": "gpt-4o-mini",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 150,
+                }).encode("utf-8")
+                req = urllib.request.Request(
+                    url,
+                    data=body,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {api_key}",
+                        "User-Agent": "IPA-Assistant/1.0",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                answer = (
+                    data.get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                    .strip()
+                )
             else:
+                # Groq (default)
                 url = "https://api.groq.com/openai/v1/chat/completions"
-                model = "llama-3.1-8b-instant"
-
-            body = json.dumps({
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 150,
-            }).encode("utf-8")
-            req = urllib.request.Request(
-                url,
-                data=body,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {api_key}",
-                    "User-Agent": "IPA-Assistant/1.0",
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-
-            answer = (
-                data.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "")
-                .strip()
-            )
+                body = json.dumps({
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 150,
+                }).encode("utf-8")
+                req = urllib.request.Request(
+                    url,
+                    data=body,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {api_key}",
+                        "User-Agent": "IPA-Assistant/1.0",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                answer = (
+                    data.get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                    .strip()
+                )
             if not answer:
                 _log_event("ASK_AI_FAILED: empty response")
                 _tts_speak("I didn't get a response from the AI.")

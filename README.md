@@ -110,7 +110,17 @@ If you already have an OpenAI API key, IPA will use it automatically — no extr
 
 IPA will use **gpt-4o-mini** which is OpenAI's cheapest model. Typical voice queries cost a fraction of a cent each.
 
+### Option 3 — Claude / Anthropic (paid)
+
+If you have an Anthropic API key, IPA will detect it automatically.
+
+1. In IPA → **Apps tab** → paste your Anthropic key (starts with `sk-ant-`) into the **AI API Key** field → **Save Config**
+
+IPA will use **Claude Haiku**, Anthropic's fastest and most affordable model.
+
 Say `ask what's the weather like on Mars` to test whichever key you set up.
+
+> **Note:** AI responses are based on training data and may not reflect recent events, releases, or news.
 
 ## Tips
 
