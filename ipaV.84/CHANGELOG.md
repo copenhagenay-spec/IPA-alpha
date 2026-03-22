@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.84.8.6
+- UI refactor — improved layout consistency, button styles, card sections, and section headers (thepyro-dev)
+- Added .gitignore to prevent user data and models from being committed
+- Added custom CTk theme file
+
 ## 0.84.8.5
 - Restart PC — say "restart computer" or "reboot computer" (5 second delay)
 - Shutdown PC — say "shut down computer" or "power off computer" (5 second delay)
