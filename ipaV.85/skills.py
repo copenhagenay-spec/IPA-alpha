@@ -12,7 +12,7 @@ import subprocess
 import webbrowser
 
 from config import load_config
-from personality import get_confirm, handle_social, get_fallback
+from personality import get_confirm, handle_social, get_fallback, get_joke
 
 
 def _confirm(prompt: str, allow_prompt: bool, confirm_fn=None) -> bool:
@@ -246,10 +246,17 @@ def _adjust_volume(direction: str, step: int = 10) -> bool:
         return False
 
 
+_active_timers: list[threading.Event] = []
+
 def _start_timer(seconds: int, label: str) -> None:
+    cancel_event = threading.Event()
+    _active_timers.append(cancel_event)
+
     def _alarm():
         try:
-            time.sleep(seconds)
+            cancelled = cancel_event.wait(timeout=seconds)
+            if cancelled:
+                return
             try:
                 import winsound  # type: ignore
                 winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
@@ -268,8 +275,18 @@ def _start_timer(seconds: int, label: str) -> None:
                 print(f"Timer done: {label}")
         except Exception:
             pass
+        finally:
+            if cancel_event in _active_timers:
+                _active_timers.remove(cancel_event)
 
     threading.Thread(target=_alarm, daemon=True).start()
+
+
+def _cancel_all_timers() -> int:
+    count = len(_active_timers)
+    for event in list(_active_timers):
+        event.set()
+    return count
 
 _NUM_WORDS = {
     "one": 1,
@@ -1435,6 +1452,14 @@ def handle_transcript(text: str, allow_prompt: bool = True, confirm_fn=None, res
         if _media_key("play_pause"):
             return True
 
+    if re.search(r"\b(cancel timer|stop timer|never mind|nevermind|forget it|cancel that)\b", t):
+        count = _cancel_all_timers()
+        if count > 0:
+            _tts_speak("Timer cancelled" if count == 1 else f"{count} timers cancelled")
+        else:
+            _tts_speak("No timers running")
+        return True
+
     timer = _parse_timer(t)
     if timer:
         seconds, label = timer
@@ -1570,6 +1595,70 @@ def handle_transcript(text: str, allow_prompt: bool = True, confirm_fn=None, res
     if web_match:
         query = web_match.group(3).strip()
         return _web_search(query, allow_prompt, confirm_fn=confirm_fn)
+
+    # Clipboard
+    if re.search(r"\bread\s+clipboard\b", t):
+        try:
+            import tkinter as _tk
+            _r = _tk.Tk()
+            _r.withdraw()
+            text = _r.clipboard_get()
+            _r.destroy()
+            if text.strip():
+                _tts_speak(text.strip())
+            else:
+                _tts_speak("Clipboard is empty")
+        except Exception:
+            _tts_speak("Couldn't read the clipboard")
+        return True
+
+    if re.search(r"\bclear\s+clipboard\b", t):
+        try:
+            import tkinter as _tk
+            _r = _tk.Tk()
+            _r.withdraw()
+            _r.clipboard_clear()
+            _r.clipboard_append("")
+            _r.update()
+            _r.destroy()
+            _vera_confirm("default")
+        except Exception:
+            _tts_speak("Couldn't clear the clipboard")
+        return True
+
+    if re.search(r"\b(paste\s+clipboard|paste\s+that|paste\s+it)\b", t):
+        try:
+            from pynput.keyboard import Controller as _KbCtrl, Key as _Key
+            _kb = _KbCtrl()
+            _kb.press(_Key.ctrl)
+            _kb.press('v')
+            _kb.release('v')
+            _kb.release(_Key.ctrl)
+            _vera_confirm("default")
+        except Exception:
+            _tts_speak("Couldn't paste")
+        return True
+
+    copy_match = re.search(r"\bcopy\s+(.+)$", t)
+    if copy_match:
+        text = copy_match.group(1).strip()
+        try:
+            import tkinter as _tk
+            _r = _tk.Tk()
+            _r.withdraw()
+            _r.clipboard_clear()
+            _r.clipboard_append(text)
+            _r.update()
+            _r.destroy()
+            _vera_confirm("default")
+        except Exception:
+            _tts_speak("Couldn't copy that")
+        return True
+
+    # Jokes
+    if re.search(r"\b(tell me a joke|say a joke|give me a joke|tell a joke|make me laugh|joke)\b", t):
+        _tts_speak(get_joke())
+        return True
 
     # Social responses
     if handle_social(t, _tts_speak):

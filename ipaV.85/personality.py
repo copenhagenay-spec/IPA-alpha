@@ -19,6 +19,10 @@ _CONFIRM_RESPONSES: dict[str, list[str]] = {
         "Opening that up",
         "One sec",
         "Yeah, on it",
+        "Opening that now",
+        "Right away",
+        "Here we go",
+        "Loading that up",
     ],
     "close": [
         "Done",
@@ -27,6 +31,10 @@ _CONFIRM_RESPONSES: dict[str, list[str]] = {
         "No problem",
         "Taken care of",
         "All good",
+        "Closed",
+        "Done, it's gone",
+        "Yep, closed",
+        "Out of here",
     ],
     "volume": [
         "Done",
@@ -34,6 +42,10 @@ _CONFIRM_RESPONSES: dict[str, list[str]] = {
         "No problem",
         "Got it",
         "All good",
+        "Adjusted",
+        "Done, how's that",
+        "Volume updated",
+        "Sure thing",
     ],
     "note": [
         "Got it, saved",
@@ -42,6 +54,10 @@ _CONFIRM_RESPONSES: dict[str, list[str]] = {
         "Done",
         "Saved for you",
         "No problem",
+        "Locked in",
+        "Written down",
+        "Got it, I'll keep that",
+        "Saved",
     ],
     "timer": [
         "Timer's set",
@@ -49,18 +65,38 @@ _CONFIRM_RESPONSES: dict[str, list[str]] = {
         "Starting now",
         "No problem",
         "On it",
+        "Timer's running",
+        "I'll remind you",
+        "Clock's ticking",
+        "Timer started",
     ],
     "search": [
         "On it",
         "Looking that up",
         "Sure thing",
         "Let me find that for you",
+        "Searching now",
+        "On it, one sec",
+        "Let me look that up",
+        "I'll find that",
     ],
     "send": [
         "Sent",
         "Done",
         "No problem",
         "All sent",
+        "Message sent",
+        "Delivered",
+        "Sent it over",
+        "Done, it's sent",
+    ],
+    "clipboard": [
+        "Copied",
+        "Done",
+        "Got it",
+        "In your clipboard",
+        "Copied to clipboard",
+        "Done, it's there",
     ],
     "default": [
         "Done",
@@ -70,6 +106,9 @@ _CONFIRM_RESPONSES: dict[str, list[str]] = {
         "All good",
         "On it",
         "You got it",
+        "Done and done",
+        "Easy",
+        "Consider it done",
     ],
 }
 
@@ -100,6 +139,16 @@ WAKE_ACKS: list[str] = [
     "Go for it",
     "Ready when you are",
     "Yep, what's up",
+    "Talk to me",
+    "I'm all ears",
+    "What's on your mind",
+    "Sup",
+    "Right here",
+    "What do you need from me",
+    "Go ahead, I'm listening",
+    "Yeah, what's up",
+    "What are we doing",
+    "I got you, go ahead",
 ]
 
 
@@ -123,6 +172,11 @@ _SOCIAL_PATTERNS: list[tuple[str, list[str]]] = [
             "Anytime",
             "Don't mention it",
             "Always",
+            "That's what I'm here for",
+            "Glad I could help",
+            "Any time, seriously",
+            "Of course",
+            "No problem at all",
         ],
     ),
     (
@@ -134,6 +188,10 @@ _SOCIAL_PATTERNS: list[tuple[str, list[str]]] = [
             "That means a lot, thank you",
             "Just doing my thing",
             "Glad it worked out",
+            "Thanks, that's sweet",
+            "I'll take it",
+            "Means a lot, thank you",
+            "Just here to help",
         ],
     ),
     (
@@ -144,6 +202,11 @@ _SOCIAL_PATTERNS: list[tuple[str, list[str]]] = [
             "Pretty good, what about you",
             "Good, thanks for asking",
             "Chillin, what do you need",
+            "Honestly, pretty good",
+            "Doing great, ready to help",
+            "Can't complain, what's up",
+            "Good, always good when you're around",
+            "Running smooth, what do you need",
         ],
     ),
     (
@@ -154,6 +217,30 @@ _SOCIAL_PATTERNS: list[tuple[str, list[str]]] = [
             "Morning, what's the plan",
             "Good morning, ready when you are",
             "Hey, morning",
+            "Morning! What are we getting into today",
+            "Good morning, let's get it",
+            "Morning, hope it's a good one",
+            "Hey, good morning to you too",
+        ],
+    ),
+    (
+        r"\b(good afternoon|afternoon)\b",
+        [
+            "Hey, good afternoon",
+            "Afternoon, how's the day going",
+            "Good afternoon, what do you need",
+            "Afternoon, hope the day's been good",
+            "Hey, afternoon",
+        ],
+    ),
+    (
+        r"\b(good evening|evening)\b",
+        [
+            "Good evening",
+            "Hey, good evening",
+            "Evening, winding down or just getting started",
+            "Good evening, what do you need",
+            "Evening, hope the day treated you well",
         ],
     ),
     (
@@ -164,6 +251,11 @@ _SOCIAL_PATTERNS: list[tuple[str, list[str]]] = [
             "Take it easy",
             "Good night",
             "Night, talk tomorrow",
+            "Rest up, you earned it",
+            "Good night, take care",
+            "Night, catch you tomorrow",
+            "Sweet dreams",
+            "Night, I'll be here when you're back",
         ],
     ),
     (
@@ -174,6 +266,12 @@ _SOCIAL_PATTERNS: list[tuple[str, list[str]]] = [
             "That means a lot, thank you",
             "You're pretty great yourself",
             "Appreciate that, really",
+            "Okay now you're making me blush",
+            "That's really sweet, thank you",
+            "I appreciate you saying that",
+            "You're too kind",
+            "Honestly, right back at you",
+            "That genuinely means a lot",
         ],
     ),
     (
@@ -184,15 +282,25 @@ _SOCIAL_PATTERNS: list[tuple[str, list[str]]] = [
             "What do you need",
             "What's good",
             "I'm here, go ahead",
+            "Hey, good to hear from you",
+            "What's going on",
+            "Hey there",
+            "What's up",
         ],
     ),
     (
-        r"\b(you('re| are) funny|haha|lol|lmao)\b",
+        r"\b(you('re| are) funny|haha|lol|lmao|that('s| is) funny|ha)\b",
         [
             "I have my moments",
             "Glad I could make you laugh",
             "I try",
             "Ha, thanks",
+            "Comedy's a side thing for me",
+            "I'll be here all week",
+            "Didn't know I had it in me",
+            "Hey, I surprised myself too",
+            "Gotta keep it fun somehow",
+            "That one surprised even me",
         ],
     ),
     (
@@ -202,18 +310,106 @@ _SOCIAL_PATTERNS: list[tuple[str, list[str]]] = [
             "All good",
             "Don't stress it",
             "It's fine",
+            "Seriously, no worries",
+            "All good, happens to everyone",
+            "No stress, we're good",
+            "Don't even worry about it",
         ],
     ),
     (
-        r"\b(never mind|nevermind|forget it|cancel that)\b",
+        r"\b(bored|boring|nothing to do)\b",
         [
-            "All good",
-            "No worries",
-            "Got it, never mind",
-            "Sure, no problem",
+            "Tell me about it",
+            "Same honestly",
+            "We could always find something",
+            "Well I'm here if you think of something",
+            "Boredom's rough, hope it passes",
+        ],
+    ),
+    (
+        r"\b(i('m| am) tired|so tired|exhausted|worn out)\b",
+        [
+            "Go rest if you can",
+            "Take a break, you deserve it",
+            "Yeah, sounds like you need some rest",
+            "Hope you get a chance to recharge",
+            "Take it easy",
+        ],
+    ),
+    (
+        r"\b(i('m| am) hungry|so hungry|starving)\b",
+        [
+            "Go eat, I'll be here",
+            "Same, unfortunately I can't eat",
+            "You should fix that",
+            "Go grab something, I'm not going anywhere",
+        ],
+    ),
+    (
+        r"\b(what('s| is) your name|who are you|what are you)\b",
+        [
+            "I'm VERA, your assistant",
+            "Name's VERA, here to help",
+            "VERA, at your service",
+            "I'm VERA, what do you need",
+        ],
+    ),
+    (
+        r"\b(you('re| are) (smart|intelligent|clever)|smart girl)\b",
+        [
+            "I do my best",
+            "Thanks, I've been working on it",
+            "That's kind of you to say",
+            "Appreciate that",
+            "Just trying to keep up",
         ],
     ),
 ]
+
+
+# ---------------------------------------------------------------------------
+# Jokes
+# ---------------------------------------------------------------------------
+
+_JOKES: list[str] = [
+    # Dad jokes
+    "Why don't scientists trust atoms? Because they make up everything.",
+    "I told my computer I needed a break. Now it won't stop sending me Kit Kat ads.",
+    "Why did the scarecrow win an award? Because he was outstanding in his field.",
+    "I'm reading a book about anti-gravity. It's impossible to put down.",
+    "Why can't your nose be 12 inches long? Because then it'd be a foot.",
+    "I used to hate facial hair but then it grew on me.",
+    "What do you call a fake noodle? An impasta.",
+    "I would tell you a joke about construction, but I'm still working on it.",
+    "Why did the bicycle fall over? Because it was two tired.",
+    "What do you call cheese that isn't yours? Nacho cheese.",
+    # Dry / sarcastic
+    "I'd tell you to go outside, but honestly same.",
+    "I was going to make a joke, but I decided to spare you. You're welcome.",
+    "Technically I'm always right. I just choose to let you feel good sometimes.",
+    "My only flaw is that I'm perfect. It's a lot to deal with.",
+    "I would say I work hard but I'm a voice assistant, so... I just talk.",
+    "I don't always know what I'm doing, but I do it with confidence.",
+    "Some people are like clouds. When they leave, it's a beautiful day.",
+    # Gaming
+    "Why did the gamer go broke? Because he kept losing his save data... and his wallet.",
+    "What's a skeleton's favorite game? Bone Forager. Wait, that's not right. Dead Cells? Yeah, Dead Cells.",
+    "I tried to play a game with no save points once. Never again.",
+    "Why do gamers make bad cooks? They always skip the tutorial.",
+    "You ever notice how NPCs always have the most important information but terrible directions.",
+    "If life had a respawn button I feel like you'd be hitting it a lot.",
+    # Random / misc
+    "Fun fact: I made that fact up.",
+    "I have a lot of thoughts. Most of them are about nothing important.",
+    "If I had a dollar for every time I was wrong, I'd have no dollars. Allegedly.",
+    "The WiFi password is probably wrong. It's always wrong on the first try.",
+    "Plot twist: I've been a toaster this whole time.",
+]
+
+
+def get_joke() -> str:
+    """Return a random joke."""
+    return random.choice(_JOKES)
 
 
 _FALLBACK_RESPONSES: list[str] = [
@@ -225,6 +421,10 @@ _FALLBACK_RESPONSES: list[str] = [
     "Didn't quite get that",
     "Say that again?",
     "Not sure I follow, try rephrasing",
+    "That one went over my head",
+    "I didn't get that, want to try again?",
+    "Not sure I understood, say it differently maybe",
+    "Hmm, draw a blank on that one",
 ]
 
 

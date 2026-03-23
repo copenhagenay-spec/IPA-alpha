@@ -981,7 +981,7 @@ def main() -> None:
                 status_var.set(f"Listening (hotkey {hotkey.get()})")
             elif mode.get() == "wake":
                 _start_wake_word()
-                status_var.set("Wake word active (say 'hey VERA')")
+                status_var.set("Wake word active (say 'vera')")
             else:
                 status_var.set("Timed mic mode (manual Run Now)")
         except Exception as exc:
@@ -1071,18 +1071,29 @@ def main() -> None:
         except Exception as exc:
             print(f"Wake word error: {exc}")
 
+    _wake_thread: list = [None]  # mutable container so inner functions can update it
+
     def _start_wake_word():
+        # Stop any existing wake word thread first
+        _wake_stop.set()
+        if _wake_thread[0] is not None and _wake_thread[0].is_alive():
+            _wake_thread[0].join(timeout=2.0)
         _wake_stop.clear()
-        threading.Thread(target=_wake_word_loop, daemon=True).start()
+        t = threading.Thread(target=_wake_word_loop, daemon=True)
+        _wake_thread[0] = t
+        t.start()
 
     def _stop_wake_word():
         _wake_stop.set()
+        if _wake_thread[0] is not None and _wake_thread[0].is_alive():
+            _wake_thread[0].join(timeout=2.0)
+        _wake_thread[0] = None
 
     def _toggle_wake_word():
         if mode.get() == "wake":
             listener.stop()
             _start_wake_word()
-            status_var.set("Wake word active (say 'hey VERA')")
+            status_var.set("Wake word active (say 'vera')")
         else:
             _stop_wake_word()
 
