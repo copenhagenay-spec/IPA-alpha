@@ -1,79 +1,105 @@
-# IPA Assistant
+# VERA — Voice Enabled Response Assistant
 
-Offline personal assistant for Windows using Vosk speech recognition.
-
----
-
-## Quick Start
-
-1. Install Python 3.10+ from [python.org](https://www.python.org/downloads/) — check **"Add Python to PATH"** during install
-2. Double-click **`setup.cmd`** to install dependencies (one-time)
-3. Double-click **`run_ipa.cmd`** to launch IPA
-4. The setup wizard will open — follow the steps to configure IPA and download a language model
-
-IPA will run in the background after the wizard finishes. Look for the icon in your system tray.
-
-For a detailed walkthrough see the [Setup Guide](ipaV.85/docs/setup.md).
+Offline personal voice assistant for Windows. No cloud, no API key required — everything runs locally on your machine.
 
 ---
 
-## Documentation
+## Installation
 
-| Guide | Description |
+1. Download the latest **VERA_Setup_x.x.x.exe** from the [Releases](../../releases) page
+2. Run it — Windows will ask for admin permission (needed to install a voice component)
+3. The installer will automatically download Python dependencies and the voice model (~310MB, one-time)
+4. Launch VERA from the desktop shortcut or Start Menu
+
+> **Requires Python 3.11 or newer.** Download from [python.org](https://www.python.org/downloads/) — check **"Add Python to PATH"** during install.
+
+---
+
+## First Run
+
+The setup wizard opens automatically on first launch:
+
+1. Choose **Language** (English or Spanish)
+2. Choose **Mode** — Hold-to-talk, Hotkey, or Timed
+3. Download a speech model if prompted (English model is bundled, Spanish downloads separately)
+4. Optional: **Import Steam Apps** to add your games as voice commands
+5. Click **Finish** — VERA starts listening in the background
+
+---
+
+## Voice Commands
+
+Say `what can I say` at any time to hear all available commands.
+
+| Category | Examples |
 |---|---|
-| [Setup Guide](ipaV.85/docs/setup.md) | Full installation and first-time setup walkthrough |
-| [Voice Commands](ipaV.85/docs/commands.md) | Complete list of voice commands with examples |
-| [Adding Apps](ipaV.85/docs/adding-apps.md) | How to add apps, import Steam games, and create aliases |
-| [AI Setup](ipaV.85/docs/ai-setup.md) | Setting up Groq, Claude, or OpenAI for the ask command |
-| [Discord Setup](ipaV.85/docs/discord.md) | Configuring Discord send and read commands |
+| Apps | `open spotify`, `close discord` |
+| Search | `search for <query>`, `youtube <query>` |
+| Media | `play`, `pause`, `skip`, `volume up`, `mute` |
+| Timers | `set a timer 5 minutes`, `cancel timer` |
+| Notes | `note <text>`, `open notes`, `delete last note` |
+| Clipboard | `copy that`, `read clipboard`, `clear clipboard` |
+| Keybinds | `reload` → presses R (configured in Actions tab) |
+| Discord | `discord <channel> <message>`, `read discord <channel>` |
+| System | `sleep computer`, `restart assistant` |
+| Conversation | `tell me a joke`, `what's your name`, `good morning` |
+
+> **Note:** Keybinds may be blocked by anti-cheat software (EAC/BattlEye) in protected games. Use at your own risk.
 
 ---
 
-## Features
+## Keybinds & Macros
 
-- Say **"what can I say"** to see all available commands inside the app
-- Open apps and games by voice — `open <app>` / `open <game>`
-- Full Steam library import — add all your games in one click
-- App aliases — create short voice shortcuts for any app
-- Web search — `search for <query>`
-- YouTube — search and media controls by voice
-- Spotify — search by voice, play/pause/skip controls
-- Timers — `set a timer 10 minutes`
-- Notes — save, open, and delete notes by voice
-- Type text — `type <text>` simulates keyboard input
-- Send message — `send message <text>` types and hits Enter
-- Text-to-speech — `read out <text>`
-- AI query — `ask <question>` — answered aloud via Groq, Claude, or OpenAI
-- Discord — send and read messages by voice via webhook
-- Restart/shutdown PC by voice
-- Close apps by voice — `close <app>` / `close this`
-- Mouse side button support for push-to-talk
-- Bug report button — zips logs and settings for easy sharing
-- Check for updates from the UI
+Map a spoken phrase to a keypress or sequence of keys in the **Actions** tab:
+
+- Single key: `reload` → `r`
+- Combo: `quick save` → `ctrl+s`
+- Macro sequence: `eject` → `f1 > space > enter`
+- Mouse side buttons supported as push-to-talk key
 
 ---
 
-## Files
+## Steam Import
 
-| Path | Description |
-|---|---|
-| `data/config.json` | Your settings |
-| `data/model/en/` | English language model |
-| `data/model/es/` | Spanish language model |
-| `data/logs/` | Crash logs and transcripts |
-| `data/assets/` | Icons |
+Click **Import Steam** in the Apps tab to automatically add your installed games as voice commands.
+
+---
+
+## AI Setup (Optional)
+
+The `ask <question>` command supports on-demand AI responses. Paste your key in **Apps → AI API Key**.
+
+| Provider | Key prefix | Notes |
+|---|---|---|
+| Groq | `gsk_` | Free — 14,400 requests/day, no credit card |
+| OpenAI | `sk-` | Paid — uses gpt-4o-mini |
+| Anthropic | `sk-ant-` | Paid — uses Claude Haiku |
+
+VERA detects which provider to use automatically based on your key format.
 
 ---
 
 ## Troubleshooting
 
-- If nothing is transcribed, check Windows microphone permissions and your selected input device
-- If a command doesn't trigger, check **Last Transcript** in the UI for misheard words — add an alias if needed
-- If the app won't open, run `run_ipa.cmd` to see errors in the terminal
-- Crash logs are saved to `data/logs/assistant.log`
+- **Nothing transcribed** — check Windows microphone permissions and your input device in Settings
+- **App won't open** — run `run_ipa.cmd` directly to see errors in the terminal
+- **Command not triggering** — check **Last Transcript** in the UI for misheard words, add a mishear correction
+- **Crash logs** — saved to `%LocalAppData%\VERA\data\logs\assistant.log`
 
 ---
 
 ## Uninstall
 
-Double-click **`uninstall.cmd`**. You'll be asked whether to remove your settings and language model. To fully remove IPA, delete the IPA folder after running the uninstaller.
+Use **Add or Remove Programs** → search for VERA, or run the uninstaller from the Start Menu.
+
+Your settings (`config.json`) and memory (`memory.json`) are preserved after uninstall in case you reinstall later.
+
+---
+
+## Manual / Source Install
+
+If you prefer to run from source instead of using the installer:
+
+1. Clone the repo
+2. Run `setup.cmd` to install dependencies
+3. Run `run_ipa.cmd` to start VERA
