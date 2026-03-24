@@ -154,6 +154,7 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     _create_bug_report = callbacks["create_bug_report"]
     _export_transcripts = callbacks["export_transcripts"]
     _clear_pycache = callbacks["clear_pycache"]
+    _create_shortcuts = callbacks["create_shortcuts"]
     _add_app = callbacks["add_app"]
     _remove_app = callbacks["remove_app"]
     _test_app = callbacks["test_app"]
@@ -343,6 +344,10 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
                width=150).pack(side="left", padx=4)
     _danger_btn(util_row2, text="Delete Cache", command=_clear_pycache,
                 width=130).pack(side="left", padx=4)
+
+    util_row3 = _card_row(util_card)
+    _secondary_btn(util_row3, text="Add Desktop Shortcut", command=_create_shortcuts,
+                   width=180).pack(side="left", padx=4)
 
     # =====================================================================
     # APPS TAB

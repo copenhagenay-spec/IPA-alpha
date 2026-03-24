@@ -1138,8 +1138,8 @@ def main() -> None:
 
                     if triggered and not _wake_stop.is_set():
                         from personality import get_wake_ack  # type: ignore
-                        from skills import _edge_tts_play  # type: ignore
-                        _edge_tts_play(get_wake_ack())  # blocks until done
+                        from skills import _kokoro_tts_play  # type: ignore
+                        _kokoro_tts_play(get_wake_ack())  # blocks until done
                         # Flush audio captured during TTS playback
                         while not q.empty():
                             try:
@@ -1412,6 +1412,46 @@ def main() -> None:
         else:
             messagebox.showinfo("Cache Cleared", "No __pycache__ folders found.")
 
+    def _create_shortcuts():
+        threading.Thread(target=_create_shortcuts_worker, daemon=True).start()
+
+    def _create_shortcuts_worker():
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        target = os.path.join(base_dir, "run_ipa.vbs")
+        icon = os.path.join(base_dir, "data", "assets", "ipa.ico")
+        desktop = os.path.join(os.environ.get("USERPROFILE", ""), "Desktop", "VERA.lnk")
+        start_menu_dir = os.path.join(
+            os.environ.get("APPDATA", ""),
+            "Microsoft", "Windows", "Start Menu", "Programs", "VERA"
+        )
+        os.makedirs(start_menu_dir, exist_ok=True)
+        start_menu = os.path.join(start_menu_dir, "VERA.lnk")
+
+        def _make_lnk(dest):
+            ps = (
+                f'$ws = New-Object -ComObject WScript.Shell; '
+                f'$s = $ws.CreateShortcut("{dest}"); '
+                f'$s.TargetPath = "{target}"; '
+                f'$s.WorkingDirectory = "{base_dir}"; '
+                f'$s.IconLocation = "{icon}"; '
+                f'$s.Save()'
+            )
+            return subprocess.run(["powershell", "-Command", ps], capture_output=True).returncode == 0
+
+        desktop_ok = _make_lnk(desktop)
+        start_ok = _make_lnk(start_menu)
+
+        if desktop_ok or start_ok:
+            parts = []
+            if desktop_ok:
+                parts.append("Desktop shortcut created.")
+            if start_ok:
+                parts.append("Start Menu shortcut created.")
+            parts.append("\nTo pin VERA to Start: search for VERA, look under the 'Apps' section (not 'Best match'), right-click it, and select 'Pin to Start'.")
+            messagebox.showinfo("Shortcuts Created", "\n".join(parts))
+        else:
+            messagebox.showerror("Shortcut Failed", "Could not create shortcuts. Try creating them manually.")
+
     # =========================================================================
     # =========================================================================
     #  LAYOUT — the modern CustomTkinter UI (modularized)
@@ -1459,6 +1499,7 @@ def main() -> None:
         "export_transcripts": _export_transcripts,
         "toggle_wake_word": _toggle_wake_word,
         "clear_pycache": _clear_pycache,
+        "create_shortcuts": _create_shortcuts,
         "add_app": _add_app,
         "remove_app": _remove_app,
         "test_app": _test_app,

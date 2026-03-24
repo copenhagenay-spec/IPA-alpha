@@ -92,32 +92,36 @@ def _open_notes() -> bool:
         _log_event(f"NOTES_OPEN_FAILED: {exc}")
         return False
 
-_VERA_VOICE = "en-US-JennyNeural"
+_VERA_KOKORO_VOICE = "af_heart"
+_kokoro_instance = None
 
 
-def _edge_tts_play(text: str) -> None:
-    """Generate audio via Edge TTS and play it synchronously. Falls back to pyttsx3."""
+def _get_kokoro_models_dir() -> str:
+    return os.path.join(os.path.dirname(__file__), "data", "models")
+
+
+def _get_kokoro():
+    """Lazy-init kokoro-onnx — loads model files on first call."""
+    global _kokoro_instance
+    if _kokoro_instance is None:
+        from kokoro_onnx import Kokoro  # type: ignore
+        models_dir = _get_kokoro_models_dir()
+        onnx_path = os.path.join(models_dir, "kokoro-v1.0.onnx")
+        voices_path = os.path.join(models_dir, "voices-v1.0.bin")
+        _kokoro_instance = Kokoro(onnx_path, voices_path)
+    return _kokoro_instance
+
+
+def _kokoro_tts_play(text: str) -> None:
+    """Generate and play audio via Kokoro TTS synchronously. Falls back to pyttsx3."""
     try:
-        import asyncio
-        import tempfile
-        import edge_tts  # type: ignore
-        from playsound import playsound  # type: ignore
-
-        async def _generate():
-            communicate = edge_tts.Communicate(text, _VERA_VOICE)
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-                tmp = f.name
-            await communicate.save(tmp)
-            return tmp
-
-        tmp_path = asyncio.run(_generate())
-        playsound(tmp_path)
-        try:
-            os.remove(tmp_path)
-        except Exception:
-            pass
+        import sounddevice as sd  # type: ignore
+        kokoro = _get_kokoro()
+        samples, sample_rate = kokoro.create(text, voice=_VERA_KOKORO_VOICE, speed=1.0, lang="en-us")
+        sd.play(samples, samplerate=sample_rate)
+        sd.wait()
     except Exception as e:
-        _log_event(f"TTS_EDGE_ERROR: {e}")
+        _log_event(f"TTS_KOKORO_ERROR: {e}")
         # Fallback to pyttsx3
         try:
             import pyttsx3  # type: ignore
@@ -134,7 +138,7 @@ def _edge_tts_play(text: str) -> None:
 
 def _tts_speak(text: str) -> bool:
     try:
-        threading.Thread(target=_edge_tts_play, args=(text,), daemon=True).start()
+        threading.Thread(target=_kokoro_tts_play, args=(text,), daemon=True).start()
         _log_event(f"TTS_SPEAK: {text}")
         return True
     except Exception as exc:
@@ -1332,6 +1336,8 @@ def _ih_help(m, t, allow_prompt, confirm_fn, restart_fn):
 # --- Restart VERA ---
 @_intent(990, r"(\b(restart|reboot)\s+(vera|assistant|the assistant)\b|^(restart|reboot)$)")
 def _ih_restart_vera(m, t, allow_prompt, confirm_fn, restart_fn):
+    from memory import clear_session as _clear_session
+    _clear_session()
     _log_event("RESTART_IPA: voice command")
     if restart_fn is not None:
         threading.Thread(target=restart_fn, daemon=True).start()
@@ -1901,6 +1907,65 @@ def _ih_clipboard_copy(m, t, allow_prompt, confirm_fn, restart_fn):
     return True
 
 
+# --- State detection ("I'm tired", "I'm playing SC", etc.) ---
+@_intent(210, r"\bi('m| am)\s+(tired|exhausted|sleepy|bored|hungry|frustrated|stressed|anxious|happy|good|great|feeling\s+\w+|playing\s+.+|working\s+.+|gaming\b)")
+def _ih_state(m, t, allow_prompt, confirm_fn, restart_fn):
+    from memory import set_session as _set_session, get_session as _get_session
+    import random as _r
+    state = m.group(2).strip().lower()
+
+    # Detect activity vs mood
+    if state.startswith("playing "):
+        activity = state[8:].strip()
+        _set_session("activity", activity)
+        _set_session("last_topic", f"playing {activity}")
+        responses = [
+            f"Nice, have a good session",
+            f"Sounds fun, let me know if you need anything",
+            f"Got it, I'll be here if you need me",
+        ]
+        _tts_speak(_r.choice(responses))
+        return True
+
+    if state in ("working", "gaming"):
+        _set_session("activity", state)
+        _set_session("last_topic", state)
+        _tts_speak(_r.choice(["Got it, I'll stay out of your way", "Okay, here if you need me"]))
+        return True
+
+    # Mood states
+    _set_session("mood", state)
+    _set_session("last_topic", state)
+
+    mood_responses = {
+        "tired":       (["Rough day? Hope you can rest soon", "You doing okay?", "Take it easy when you can"], True),
+        "exhausted":   (["Take a break when you can", "You should rest up", "Hope you get some downtime soon"], False),
+        "sleepy":      (["Maybe wrap up soon and get some sleep", "Don't push too hard", "Rest up when you can"], False),
+        "bored":       (["Want me to put something on? I can open Spotify", "Anything I can do to help?", "I got you, what do you want to do"], True),
+        "hungry":      (["Go grab something to eat, I'll be here", "You should eat something", "Don't let me keep you from food"], False),
+        "frustrated":  (["What's going on?", "Talk to me, what happened?", "I hear you, what's up?"], True),
+        "stressed":    (["What's going on?", "Take a breath, what's up?", "I'm here, what do you need?"], True),
+        "anxious":     (["You alright?", "What's on your mind?", "I'm here if you want to talk"], True),
+        "happy":       (["That's what I like to hear", "Good, keep that energy", "Love to hear it"], False),
+        "good":        (["Good to hear", "Glad you're doing well", "Nice, let's keep it that way"], False),
+        "great":       (["Let's go, good energy", "Love to hear it", "That's what's up"], False),
+    }
+
+    # Fuzzy match mood key
+    matched_key = None
+    for key in mood_responses:
+        if key in state:
+            matched_key = key
+            break
+
+    if matched_key:
+        pool, _ = mood_responses[matched_key]
+        _tts_speak(_r.choice(pool))
+    else:
+        _tts_speak(_r.choice(["Got it", "I hear you", "Noted"]))
+    return True
+
+
 # --- Jokes ---
 @_intent(200, r"\b(tell me a joke|say a joke|give me a joke|tell a joke|make me laugh|joke)\b")
 def _ih_joke(m, t, allow_prompt, confirm_fn, restart_fn):
@@ -1923,10 +1988,12 @@ def handle_transcript(text: str, allow_prompt: bool = True, confirm_fn=None, res
     if not t or t in _NOISE_WORDS:
         return False
 
+    from memory import increment_command_count as _inc_cmd
     for _priority, pattern, handler in _INTENT_REGISTRY:
         m = pattern.search(t)
         if m:
             if handler(m, t, allow_prompt, confirm_fn, restart_fn):
+                _inc_cmd()
                 return True
 
     if handle_social(t, _tts_speak):
