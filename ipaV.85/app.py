@@ -26,6 +26,17 @@ def _require_sd():
         ) from exc
 
 
+# Optional callback — set by assistant.py to show status during first-run model download
+on_model_status: object = None  # callable(str) or None
+
+
+def _whisper_model_cached() -> bool:
+    """Check if the whisper model files are already on disk."""
+    cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+    model_slug = f"models--Systran--faster-whisper-{_WHISPER_MODEL_SIZE}"
+    return os.path.isdir(os.path.join(cache_dir, model_slug))
+
+
 def _get_whisper_model():
     """Lazy-load and cache the faster-whisper model."""
     if _WHISPER_MODEL_SIZE not in _model_cache:
@@ -35,10 +46,18 @@ def _get_whisper_model():
             raise MissingDependencyError(
                 "Missing dependency: faster-whisper. Install with: pip install faster-whisper"
             ) from exc
+
+        if not _whisper_model_cached() and callable(on_model_status):
+            on_model_status("Downloading speech model (~150MB, first run only)...")
+
         # cpu + int8 works well on most machines without a GPU
         _model_cache[_WHISPER_MODEL_SIZE] = WhisperModel(
             _WHISPER_MODEL_SIZE, device="cpu", compute_type="int8"
         )
+
+        if callable(on_model_status):
+            on_model_status("Speech model ready.")
+
     return _model_cache[_WHISPER_MODEL_SIZE]
 
 

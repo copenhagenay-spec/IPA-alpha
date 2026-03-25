@@ -74,11 +74,15 @@ class BackgroundListener:
         self.listener = keyboard.GlobalHotKeys({str(hotkey): _on_activate})
         self.listener.start()
 
-    def start_hold(self, hold_key: str, model_path: str, confirm_fn, on_text=None, restart_fn=None):
+    def start_hold(self, hold_key: str, model_path: str, confirm_fn, on_text=None, restart_fn=None, on_record_start=None, on_record_end=None):
         from pynput import keyboard  # type: ignore
 
         def _record():
+            if on_record_start:
+                on_record_start()
             text = _run_hold(self.stop_event, hold_key, model_path, confirm_fn=confirm_fn, restart_fn=restart_fn)
+            if on_record_end:
+                on_record_end()
             if on_text and text:
                 on_text(text)
             self.recording_flag.clear()
@@ -333,6 +337,10 @@ def main() -> None:
 
     status_var = tk.StringVar(value="Idle")
     transcript_var = tk.StringVar(value="")
+
+    # Hook whisper model download status into the UI status bar
+    import app as _app_module
+    _app_module.on_model_status = lambda msg: root.after(0, lambda m=msg: status_var.set(m))
     app_name_var = tk.StringVar()
     app_cmd_var = tk.StringVar()
     alias_var = tk.StringVar()
@@ -1055,14 +1063,17 @@ def main() -> None:
             secs = 5
         try:
             if mode.get() == "hold":
+                _hold_label = f"Listening (hold {holdkey.get()})"
                 listener.start_hold(
                     holdkey.get(),
                     model_path=_model_dir(),
                     confirm_fn=_confirm_prompt,
                     on_text=lambda t: root.after(0, lambda: _update_transcript(t)),
                     restart_fn=_do_restart,
+                    on_record_start=lambda: root.after(0, lambda: status_var.set("Recording...")),
+                    on_record_end=lambda: root.after(0, lambda: status_var.set(_hold_label)),
                 )
-                status_var.set(f"Listening (hold {holdkey.get()})")
+                status_var.set(_hold_label)
             elif mode.get() == "hotkey":
                 listener.start_hotkey(
                     hotkey.get(),

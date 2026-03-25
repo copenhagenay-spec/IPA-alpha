@@ -571,8 +571,26 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     status_left.pack(fill="x", padx=12, pady=8)
     ctk.CTkLabel(status_left, text="Status:",
                  font=("Segoe UI", 11, "bold")).pack(side="left")
+
+    # Indicator dot — color reflects current state
+    _indicator = ctk.CTkLabel(status_left, text="●", font=("Segoe UI", 14), text_color="gray")
+    _indicator.pack(side="left", padx=(8, 4))
+
+    def _update_indicator(status: str):
+        s = status.lower()
+        if "recording" in s:
+            _indicator.configure(text_color="#e74c3c")   # red — mic is hot
+        elif "listening" in s or "wake" in s:
+            _indicator.configure(text_color="#2ecc71")   # green — active
+        elif "processing" in s or "installing" in s or "downloading" in s:
+            _indicator.configure(text_color="#3498db")   # blue — busy
+        else:
+            _indicator.configure(text_color="gray")      # idle
+
+    status_var.trace_add("write", lambda *_: _update_indicator(status_var.get()))
+
     ctk.CTkLabel(status_left, textvariable=status_var).pack(
-        side="left", padx=(8, 20))
+        side="left", padx=(4, 20))
     ctk.CTkLabel(status_left, text="Last:",
                  font=("Segoe UI", 11, "bold")).pack(side="left")
     ctk.CTkEntry(status_left, textvariable=transcript_var,
