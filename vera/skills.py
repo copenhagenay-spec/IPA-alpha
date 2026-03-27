@@ -1863,32 +1863,34 @@ def _ih_custom_actions(m, t, allow_prompt, confirm_fn, restart_fn):
     return False
 
 
-# --- Spotify ---
+# --- Spotify / media keys ---
 @_intent(400, r"^.+$")
 def _ih_spotify(m, t, allow_prompt, confirm_fn, restart_fn):
     cfg = load_config()
-    if not cfg.get("spotify_media", False):
-        return False
+    spotify_enabled = cfg.get("spotify_media", False)
     require_spotify = cfg.get("spotify_requires_keyword", True)
     keywords = _get_spotify_keywords(cfg)
     has_spotify = _has_keyword(t, keywords)
-    if not require_spotify or has_spotify:
+
+    # Spotify search — requires spotify_media enabled
+    if spotify_enabled and (not require_spotify or has_spotify):
         sp_search = re.search(r"\bspotify\s+(?:play\s+|search\s+)?(.+)$", t)
         if sp_search:
             query = sp_search.group(1).strip()
             if query not in ("play", "pause", "next", "skip", "previous", "back", "resume", "stop"):
                 if _spotify_search(query):
                     return True
-        action = None
-        if re.search(r"\b(play|pause|resume|stop)(\s+(song|track))?\b", t):
-            action = "play_pause"
-        elif re.search(r"\b(next|skip)(\s+(song|track))?\b", t):
-            action = "next"
-        elif re.search(r"\b(previous|back|rewind)(\s+(song|track))?\b", t):
-            action = "previous"
-        if action:
-            if _media_key(action):
-                return True
+
+    # Media keys — work with any player (Spotify, Apple Music, etc.)
+    action = None
+    if re.search(r"\b(play|pause|resume|stop)(\s+(song|track|music|video|vid))?\b", t):
+        action = "play_pause"
+    elif re.search(r"\b(next|skip)(\s+(song|track))?\b", t):
+        action = "next"
+    elif re.search(r"\b(previous|back|rewind)(\s+(song|track))?\b", t):
+        action = "previous"
+    if action:
+        return bool(_media_key(action))
     return False
 
 
