@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.86.4
+- Updater now automatically replaces VERA.exe — no more manual reinstalls needed for launcher updates
+
 ## 0.86.3
 - Fixed desktop and Start Menu shortcuts not launching VERA
 - Media keys (play, pause, skip, previous) now work with any player — Apple Music, YouTube, etc. — not just Spotify
