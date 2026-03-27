@@ -536,6 +536,15 @@ def main() -> None:
             except Exception:
                 pass
 
+            # Update VERA.exe launcher
+            exe_url = f"https://github.com/copenhagenay-spec/Vera-beta/releases/download/v{latest}/VERA.exe"
+            launcher_out = os.path.join(base_dir, "launcher_out", "VERA.exe")
+            if os.path.exists(os.path.dirname(launcher_out)):
+                try:
+                    urllib.request.urlretrieve(exe_url, launcher_out)
+                except Exception:
+                    pass
+
             messagebox.showinfo("Update", "Update installed. Restarting VERA...")
             script_path = os.path.abspath(__file__)
             subprocess.Popen([sys.executable, script_path])
