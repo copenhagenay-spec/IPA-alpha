@@ -538,6 +538,96 @@ _FUZZY_TARGETS = {
     "spotify": 0.80,
 }
 
+# ---------------------------------------------------------------------------
+# User mishear corrections (runtime-loaded from data/user_mishears.json)
+# ---------------------------------------------------------------------------
+_USER_MISHEAR_PATH = os.path.join(os.path.dirname(__file__), "data", "user_mishears.json")
+_UNMATCHED_PATH = os.path.join(os.path.dirname(__file__), "data", "unmatched.json")
+
+
+def _load_user_mishears() -> dict:
+    """Return user corrections from data/user_mishears.json, or {} on error."""
+    import json
+    if not os.path.exists(_USER_MISHEAR_PATH):
+        return {}
+    try:
+        with open(_USER_MISHEAR_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return {}
+
+
+def _normalize_mishear(text: str) -> str:
+    """Strip punctuation and lowercase — matches what preprocess_transcript sees."""
+    return re.sub(r"[^\w\s]", "", text.strip().lower())
+
+
+def save_user_mishear(mishear: str, correction: str) -> None:
+    """Add or update a user correction and persist to disk."""
+    import json
+    os.makedirs(os.path.dirname(_USER_MISHEAR_PATH), exist_ok=True)
+    data = _load_user_mishears()
+    key = _normalize_mishear(mishear)
+    val = _normalize_mishear(correction)
+    data[key] = val
+    with open(_USER_MISHEAR_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    # Merge into live map immediately so it takes effect without restart
+    _MISHEAR_MAP[key] = val
+
+
+def log_unmatched(raw_text: str) -> None:
+    """Append a raw transcript to data/unmatched.json when no intent matched."""
+    import json
+    os.makedirs(os.path.dirname(_UNMATCHED_PATH), exist_ok=True)
+    entries: list = []
+    if os.path.exists(_UNMATCHED_PATH):
+        try:
+            with open(_UNMATCHED_PATH, "r", encoding="utf-8") as f:
+                entries = json.load(f)
+            if not isinstance(entries, list):
+                entries = []
+        except Exception:
+            entries = []
+    entry = raw_text.strip()
+    if entry and entry not in entries:
+        entries.append(entry)
+        with open(_UNMATCHED_PATH, "w", encoding="utf-8") as f:
+            json.dump(entries, f, indent=2, ensure_ascii=False)
+
+
+def load_unmatched() -> list:
+    """Return the list of unmatched transcripts."""
+    import json
+    if not os.path.exists(_UNMATCHED_PATH):
+        return []
+    try:
+        with open(_UNMATCHED_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    return []
+
+
+def dismiss_unmatched(raw_text: str) -> None:
+    """Remove a single entry from the unmatched list."""
+    import json
+    entries = load_unmatched()
+    entries = [e for e in entries if e != raw_text]
+    os.makedirs(os.path.dirname(_UNMATCHED_PATH), exist_ok=True)
+    with open(_UNMATCHED_PATH, "w", encoding="utf-8") as f:
+        json.dump(entries, f, indent=2, ensure_ascii=False)
+
+
+# Merge user corrections into the built-in map at import time
+_MISHEAR_MAP.update(_load_user_mishears())
+
+
 def _apply_mishear_corrections(text: str) -> str:
     t = text.lower()
     # Apply explicit map first (longest phrases first, word boundaries)

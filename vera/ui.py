@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tkinter as tk
 import customtkinter as ctk
 
 
@@ -122,6 +123,7 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     holdkey = state["holdkey"]
     search_engine = state["search_engine"]
     confirm_actions = state["confirm_actions"]
+    ptt_beep_volume = state["ptt_beep_volume"]
     spotify_media = state["spotify_media"]
     spotify_requires = state["spotify_requires"]
     spotify_keywords = state["spotify_keywords"]
@@ -184,6 +186,7 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     tabview.add("Settings")
     tabview.add("Apps")
     tabview.add("Integrations")
+    tabview.add("Training")
     tabview.set("Home")
 
     # =====================================================================
@@ -298,6 +301,15 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     ctk.CTkLabel(rec_r4, text="Search Engine", width=120).pack(side="left")
     ctk.CTkEntry(rec_r4, textvariable=search_engine, width=340).pack(
         side="left")
+
+    rec_r5 = _card_row(rec_card)
+    ctk.CTkLabel(rec_r5, text="Beep Volume", width=120).pack(side="left")
+    beep_vol_label = ctk.CTkLabel(rec_r5, text=f"{ptt_beep_volume.get()}%", width=40)
+    ctk.CTkSlider(rec_r5, from_=0, to=100, number_of_steps=100,
+                  variable=ptt_beep_volume,
+                  command=lambda v: beep_vol_label.configure(text=f"{int(v)}%"),
+                  width=200).pack(side="left", padx=(0, 8))
+    beep_vol_label.pack(side="left")
 
     # -- General Options --
     _section_header(settings_scroll, "General Options")
@@ -564,6 +576,91 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
                  width=130).pack(side="left", padx=4)
     _danger_btn(kb_btns, text="Remove Selected", command=_remove_keybind,
                 width=130).pack(side="right", padx=4)
+
+    # =====================================================================
+    # TRAINING TAB
+    # =====================================================================
+    from skills import load_unmatched, save_user_mishear, dismiss_unmatched
+
+    training_scroll = ctk.CTkScrollableFrame(tabview.tab("Training"))
+    training_scroll.pack(fill="both", expand=True)
+
+    _section_header(training_scroll, "Mishear Training",
+                    "Transcripts VERA didn't understand. Select one, type what you meant, and save.")
+
+    # List frame
+    unmatched_list_frame = ctk.CTkFrame(training_scroll, corner_radius=CORNER_R)
+    unmatched_list_frame.pack(fill="x", padx=PAD_OUTER, pady=(4, 8))
+
+    unmatched_listbox_var = tk.StringVar(value=[])
+    unmatched_listbox = tk.Listbox(
+        unmatched_list_frame,
+        listvariable=unmatched_listbox_var,
+        height=8,
+        selectmode="single",
+        font=("Segoe UI", 11),
+        activestyle="none",
+        relief="flat",
+        borderwidth=0,
+    )
+    unmatched_listbox.pack(fill="both", expand=True, padx=8, pady=8)
+
+    _selected_mishear = [None]  # mutable container so closures can write to it
+
+    def _refresh_unmatched():
+        entries = load_unmatched()
+        unmatched_listbox_var.set(entries)
+
+    _refresh_unmatched()
+
+    def _on_unmatched_select(event=None):
+        sel = unmatched_listbox.curselection()
+        if sel:
+            text = unmatched_listbox.get(sel[0])
+            _selected_mishear[0] = text
+            correction_entry.delete(0, "end")
+            correction_entry.insert(0, text)
+
+    unmatched_listbox.bind("<<ListboxSelect>>", _on_unmatched_select)
+
+    # Correction row
+    correction_frame = ctk.CTkFrame(training_scroll, fg_color="transparent")
+    correction_frame.pack(fill="x", padx=PAD_OUTER, pady=(0, 4))
+
+    ctk.CTkLabel(correction_frame, text="Correct to:", font=FONT_BODY).pack(side="left", padx=(0, 8))
+    correction_entry = ctk.CTkEntry(correction_frame, placeholder_text="what you actually said", width=260)
+    correction_entry.pack(side="left", fill="x", expand=True)
+
+    def _save_correction():
+        mishear = _selected_mishear[0]
+        if not mishear:
+            return
+        correction = correction_entry.get().strip()
+        if not correction:
+            return
+        save_user_mishear(mishear, correction)
+        dismiss_unmatched(mishear)
+        _selected_mishear[0] = None
+        correction_entry.delete(0, "end")
+        _refresh_unmatched()
+
+    def _dismiss_selected():
+        mishear = _selected_mishear[0]
+        if not mishear:
+            return
+        dismiss_unmatched(mishear)
+        _selected_mishear[0] = None
+        correction_entry.delete(0, "end")
+        _refresh_unmatched()
+
+    btn_row = _btn_row(training_scroll)
+    _primary_btn(btn_row, text="Save Correction", command=_save_correction, width=140).pack(side="left", padx=4)
+    _secondary_btn(btn_row, text="Dismiss", command=_dismiss_selected, width=100).pack(side="left", padx=4)
+    _muted_btn(btn_row, text="Refresh", command=_refresh_unmatched, width=90).pack(side="left", padx=4)
+
+    ctk.CTkLabel(training_scroll,
+                 text="Saved corrections take effect immediately — no restart needed.",
+                 font=FONT_HELP, text_color=COLOR_HELP).pack(anchor="w", padx=PAD_OUTER, pady=(4, 0))
 
     # =====================================================================
     # STATUS BAR  (persistent, outside tabview)

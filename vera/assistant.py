@@ -23,7 +23,7 @@ import wizard
 
 from app import MissingDependencyError, transcribe_mic, transcribe_mic_hold
 from config import load_config, save_config, discover_apps
-from skills import handle_transcript
+from skills import handle_transcript, log_unmatched
 from steam import find_steam_apps
 
 
@@ -105,14 +105,12 @@ class BackgroundListener:
                     def _start():
                         threading.Thread(target=_record, daemon=True).start()
                         time.sleep(0.5)
-                        try: __import__('winsound').Beep(660, 60)
-                        except Exception: pass
+                        _ptt_beep(660, 60, load_config().get("ptt_beep_volume", 80))
                     threading.Thread(target=_start, daemon=True).start()
                 elif not pressed and self.recording_flag.is_set() and not _mouse_released["done"]:
                     _mouse_released["done"] = True
                     def _stop():
-                        try: __import__('winsound').Beep(440, 60)
-                        except Exception: pass
+                        _ptt_beep(440, 60, load_config().get("ptt_beep_volume", 80))
                         time.sleep(0.65)
                         self.stop_event.set()
                     threading.Thread(target=_stop, daemon=True).start()
@@ -145,16 +143,14 @@ class BackgroundListener:
                     def _start():
                         threading.Thread(target=_record, daemon=True).start()
                         time.sleep(0.5)
-                        try: __import__('winsound').Beep(660, 60)
-                        except Exception: pass
+                        _ptt_beep(660, 60, load_config().get("ptt_beep_volume", 80))
                     threading.Thread(target=_start, daemon=True).start()
 
             def _on_release(key):
                 if key == key_obj and self.recording_flag.is_set() and not _kb_released["done"]:
                     _kb_released["done"] = True
                     def _stop():
-                        try: __import__('winsound').Beep(440, 60)
-                        except Exception: pass
+                        _ptt_beep(440, 60, load_config().get("ptt_beep_volume", 80))
                         time.sleep(0.65)
                         self.stop_event.set()
                     threading.Thread(target=_stop, daemon=True).start()
@@ -208,7 +204,8 @@ def _run_mic(seconds: int, model_path: str, confirm_fn=None, allow_prompt: bool 
     try:
         text = transcribe_mic(seconds=seconds, model_path=model_path)
         if text:
-            handle_transcript(text, allow_prompt=allow_prompt, confirm_fn=confirm_fn, restart_fn=restart_fn)
+            if not handle_transcript(text, allow_prompt=allow_prompt, confirm_fn=confirm_fn, restart_fn=restart_fn):
+                log_unmatched(text)
         return text
     except MissingDependencyError as exc:
         messagebox.showerror("Missing Dependency", str(exc))
@@ -221,7 +218,8 @@ def _run_hold(stop_event: threading.Event, hold_key: str, model_path: str, confi
     try:
         text = transcribe_mic_hold(stop_event=stop_event, model_path=model_path)
         if text:
-            handle_transcript(text, allow_prompt=False, confirm_fn=confirm_fn, restart_fn=restart_fn)
+            if not handle_transcript(text, allow_prompt=False, confirm_fn=confirm_fn, restart_fn=restart_fn):
+                log_unmatched(text)
         return text
     except MissingDependencyError as exc:
         messagebox.showerror("Missing Dependency", str(exc))
@@ -230,7 +228,47 @@ def _run_hold(stop_event: threading.Event, hold_key: str, model_path: str, confi
     return ""
 
 
+def _ptt_beep(freq: int, duration_ms: int, volume: int) -> None:
+    """Play a sine-wave beep at a specific volume (0-100) using winsound.PlaySound."""
+    try:
+        import winsound, struct, math
+        import numpy as np
+        sample_rate = 44100
+        n_samples = int(sample_rate * duration_ms / 1000)
+        amplitude = int(32767 * max(0, min(100, volume)) / 100)
+        samples = [int(amplitude * math.sin(2 * math.pi * freq * i / sample_rate)) for i in range(n_samples)]
+        # Build a minimal WAV in memory
+        data = struct.pack(f"<{n_samples}h", *samples)
+        header = struct.pack(
+            "<4sI4s4sIHHIIHH4sI",
+            b"RIFF", 36 + len(data), b"WAVE",
+            b"fmt ", 16, 1, 1, sample_rate, sample_rate * 2, 2, 16,
+            b"data", len(data),
+        )
+        winsound.PlaySound(header + data, winsound.SND_MEMORY)
+    except Exception:
+        try:
+            import winsound
+            winsound.Beep(freq, duration_ms)
+        except Exception:
+            pass
+
+
 def main() -> None:
+    # Single instance enforcement — prevent multiple VERA windows
+    try:
+        import ctypes
+        _mutex = ctypes.windll.kernel32.CreateMutexW(None, True, "VERASingleInstanceMutex")
+        if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            import tkinter as _tk
+            import tkinter.messagebox as _mb
+            _r = _tk.Tk(); _r.withdraw()
+            _mb.showwarning("VERA", "VERA is already running.")
+            _r.destroy()
+            return
+    except Exception:
+        pass
+
     cfg = load_config()
     if cfg and "wizard_done" not in cfg:
         cfg["wizard_done"] = True
@@ -290,6 +328,7 @@ def main() -> None:
     search_engine = tk.StringVar(
         value=cfg.get("search_engine", "https://www.google.com/search?q={query}")
     )
+    ptt_beep_volume = tk.IntVar(value=int(cfg.get("ptt_beep_volume", 80)))
     confirm_actions = tk.BooleanVar(value=bool(cfg.get("confirm_actions", False)))
     spotify_media = tk.BooleanVar(value=bool(cfg.get("spotify_media", False)))
     spotify_requires = tk.BooleanVar(value=bool(cfg.get("spotify_requires_keyword", False)))
@@ -389,6 +428,7 @@ def main() -> None:
             "hotkey": hotkey.get(),
             "hold_key": holdkey.get(),
             "search_engine": search_engine.get().strip(),
+            "ptt_beep_volume": int(ptt_beep_volume.get()),
             "confirm_actions": bool(confirm_actions.get()),
             "spotify_media": bool(spotify_media.get()),
             "spotify_requires_keyword": bool(spotify_requires.get()),
@@ -1173,8 +1213,7 @@ def main() -> None:
                                 break
                         audio_buf = np.zeros(0, dtype="float32")
                         # Beep to signal mic is open and ready
-                        import winsound as _winsound
-                        _winsound.Beep(880, 150)
+                        _ptt_beep(880, 150, load_config().get("ptt_beep_volume", 80))
                         # Record command
                         cmd_chunks = []
                         cmd_end = time.time() + 5
@@ -1189,7 +1228,8 @@ def main() -> None:
                             command = " ".join(seg.text.strip() for seg in segs).strip()
                             if command:
                                 root.after(0, lambda t=command: _update_transcript(t))
-                                handle_transcript(command, allow_prompt=True, confirm_fn=_confirm_prompt, restart_fn=_do_restart)
+                                if not handle_transcript(command, allow_prompt=True, confirm_fn=_confirm_prompt, restart_fn=_do_restart):
+                                    log_unmatched(command)
         except Exception as exc:
             print(f"Wake word error: {exc}")
 
@@ -1480,6 +1520,7 @@ def main() -> None:
         "holdkey": holdkey,
         "search_engine": search_engine,
         "confirm_actions": confirm_actions,
+        "ptt_beep_volume": ptt_beep_volume,
         "theme_var": theme_var,
         "spotify_media": spotify_media,
         "spotify_requires": spotify_requires,
