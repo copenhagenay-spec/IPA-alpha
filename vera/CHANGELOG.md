@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.87.0
+- Mishear Training UI — new Training tab shows transcripts VERA didn't understand; click one, type what you meant, save; corrections apply immediately without restart
+- PTT beep volume — slider in Settings (0–100%) controls how loud the push-to-talk beeps are
+- Single instance enforcement — opening VERA a second time shows a warning and exits instead of opening a duplicate window
+
+## 0.86.4
+- Media keys work with any player (Apple Music, Spotify, etc.) — no longer requires Spotify checkbox
+- Auto-updater now also downloads VERA.exe so updates work without manual steps
+- Desktop shortcut fixed — was using admin-only path, now creates correctly for current user
+
 ## 0.85.2
 - Key binds: mouse side button support (x1/x2) fixed — was silently failing
 - Key binds: combo support fixed (alt+n, ctrl+shift+f etc.) — bracket parsing bug resolved
