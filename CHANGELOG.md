@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.87.0
+- Mishear Training UI — new Training tab shows transcripts VERA didn't understand; click one, type what you meant, save; corrections apply immediately without restart
+- PTT beep volume — slider in Settings (0–100%) controls how loud the push-to-talk beeps are
+- Single instance enforcement — opening VERA a second time shows a warning and exits instead of opening a duplicate window
+- Voice Output device — select a virtual audio device (e.g. VB-Cable) in Settings; "read out" routes TTS through it so it plays through Discord as your mic
+
 ## 0.86.4
 - Updater now automatically replaces VERA.exe — no more manual reinstalls needed for launcher updates
 
