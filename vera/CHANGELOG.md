@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.88.0
+- Multi-server Discord support — add servers with nicknames in the new Discord tab; use 'discord <server> <channel> <message>' to target specific servers
+- Discord tab — dedicated tab for all Discord config (servers, channels, bot token); moved out of Integrations
+- Toggle-to-talk mode — press once to start recording, press again to stop; replaces timed mic mode
+- Docs updated — Discord setup guide rewritten with multi-server walkthrough, VB-Cable routing, and all command formats
+
 ## 0.87.1
 - Voice Output device — select a virtual audio device (e.g. VB-Cable) in Settings; "read out" routes TTS through it so it plays through Discord as your mic
 - Fixed restart showing "already running" — mutex now released before spawning new process on all restart paths (voice command, tray icon, updater)

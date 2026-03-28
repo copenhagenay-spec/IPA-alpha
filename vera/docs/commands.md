@@ -107,12 +107,16 @@ A full list of everything you can say to IPA. Say **"what can I say"** at any ti
 
 | What to say | What happens |
 |---|---|
-| `discord <channel> <message>` | Sends a message to a Discord channel via webhook |
+| `discord <channel> <message>` | Sends a message to a channel |
+| `discord <server> <channel> <message>` | Sends to a specific server's channel |
 | `read discord <channel>` | Reads the last message in a channel aloud |
+| `read discord <server> <channel>` | Reads from a specific server's channel |
+| `discord delete <channel>` | Deletes the last message sent to a channel |
+| `discord purge <channel> <n>` | Bulk deletes up to 100 messages |
 
-> Requires Discord webhook setup in the IPA settings. See the [Discord Setup Guide](discord.md) for details.
+> Requires Discord webhook setup. See the [Discord Setup Guide](discord.md) for full instructions including multi-server setup.
 >
-> **Note:** To create a webhook you must have **Administrator** or **Manage Webhooks** permission in the Discord server. This feature is intended for server owners and administrators.
+> **Note:** To create a webhook you must have **Administrator** or **Manage Webhooks** permission in the Discord server.
 
 ---
 

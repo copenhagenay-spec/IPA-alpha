@@ -1314,10 +1314,21 @@ def _ask_ai(question: str) -> bool:
     return True
 
 
-def _discord_read(channel_name: str) -> bool:
+def _discord_read(channel_name: str, server_name: str = "") -> bool:
     cfg = load_config()
     token = cfg.get("discord_bot_token", "").strip()
-    guild_id = cfg.get("discord_server_id", "").strip()
+
+    # Resolve server_id — check discord_servers list first, fall back to legacy single server_id
+    guild_id = ""
+    if server_name:
+        servers = cfg.get("discord_servers", [])
+        norm = _normalize_name(server_name)
+        for s in servers:
+            if isinstance(s, dict) and _normalize_name(s.get("nickname", "")) == norm:
+                guild_id = str(s.get("server_id", "")).strip()
+                break
+    if not guild_id:
+        guild_id = cfg.get("discord_server_id", "").strip()
 
     if not token:
         print("Discord bot token not configured.")
@@ -1393,16 +1404,32 @@ def _discord_read(channel_name: str) -> bool:
         return False
 
 
-def _discord_send(channel_name: str, message: str) -> bool:
+def _resolve_discord_webhook(channel_name: str, server_name: str = "") -> str:
+    """Find webhook URL for a channel, optionally filtered by server nickname."""
     cfg = load_config()
-    channels = cfg.get("discord_channels", {})
-    if not isinstance(channels, dict):
-        channels = {}
+    channels_cfg = cfg.get("discord_channels", {})
 
-    webhook_url = channels.get(channel_name)
-    if not webhook_url:
-        norm_map = {_normalize_name(k): v for k, v in channels.items()}
-        webhook_url = norm_map.get(_normalize_name(channel_name))
+    # Normalize to list format
+    if isinstance(channels_cfg, dict):
+        channels = [{"name": k.lower(), "url": v, "server": ""} for k, v in channels_cfg.items()]
+    elif isinstance(channels_cfg, list):
+        channels = channels_cfg
+    else:
+        channels = []
+
+    norm_ch = _normalize_name(channel_name)
+    norm_srv = _normalize_name(server_name) if server_name else ""
+
+    for ch in channels:
+        ch_match = _normalize_name(ch.get("name", "")) == norm_ch
+        srv_match = not norm_srv or _normalize_name(ch.get("server", "")) == norm_srv
+        if ch_match and srv_match:
+            return ch.get("url", "")
+    return ""
+
+
+def _discord_send(channel_name: str, message: str, server_name: str = "") -> bool:
+    webhook_url = _resolve_discord_webhook(channel_name, server_name)
 
     if not webhook_url:
         print(f"Discord channel not configured: {channel_name}")
@@ -1708,9 +1735,16 @@ def _ih_read_out(m, t, allow_prompt, confirm_fn, restart_fn):
     return True
 
 
-# --- Discord read ---
+# --- Discord read (server + channel OR channel only) ---
+@_intent(812, r"\bread\s+discord\s+(\w+)\s+(\w+)\b")
+def _ih_discord_read_server(m, t, allow_prompt, confirm_fn, restart_fn):
+    # "read discord <server> <channel>"
+    threading.Thread(target=_discord_read, args=(m.group(2).strip(), m.group(1).strip()), daemon=True).start()
+    return True
+
 @_intent(810, r"\bread\s+discord\s+(\w+)\b")
 def _ih_discord_read(m, t, allow_prompt, confirm_fn, restart_fn):
+    # "read discord <channel>"
     threading.Thread(target=_discord_read, args=(m.group(1).strip(),), daemon=True).start()
     return True
 
@@ -1729,9 +1763,21 @@ def _ih_discord_purge(m, t, allow_prompt, confirm_fn, restart_fn):
     return True
 
 
-# --- Discord send ---
+# --- Discord send (server + channel + message OR channel + message) ---
+@_intent(802, r"\bdiscord\s+(\w+)\s+(\w+)\s+(.+)$")
+def _ih_discord_send_server(m, t, allow_prompt, confirm_fn, restart_fn):
+    # "discord <server> <channel> <message>" — verify server exists first
+    cfg = load_config()
+    servers = cfg.get("discord_servers", [])
+    server_names = [s.get("nickname", "").lower() for s in servers if isinstance(s, dict)]
+    if _normalize_name(m.group(1).strip()) in [_normalize_name(s) for s in server_names]:
+        _discord_send(m.group(2).strip(), m.group(3).strip(), m.group(1).strip())
+        return True
+    return False  # fall through to channel-only handler
+
 @_intent(800, r"\bdiscord\s+(\w+)\s+(.+)$")
 def _ih_discord_send(m, t, allow_prompt, confirm_fn, restart_fn):
+    # "discord <channel> <message>"
     _discord_send(m.group(1).strip(), m.group(2).strip())
     return True
 

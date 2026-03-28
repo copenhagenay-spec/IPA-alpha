@@ -1,91 +1,108 @@
 # Discord Setup Guide
 
-This guide explains how to set up the Discord voice commands in IPA.
+VERA can send messages to Discord channels by voice using webhooks, and read the last message in a channel using a Discord bot. Multi-server support lets you manage channels across different servers with nicknames.
 
 ---
 
-## Overview
-
-IPA can send and read Discord messages by voice using Discord webhooks. This feature is intended for **server owners and administrators** as it requires the ability to create webhooks in your server.
+## Commands
 
 | What to say | What happens |
 |---|---|
 | `discord <channel> <message>` | Sends a message to a channel |
+| `discord <server> <channel> <message>` | Sends to a specific server's channel |
 | `read discord <channel>` | Reads the last message in a channel aloud |
+| `read discord <server> <channel>` | Reads from a specific server's channel |
+| `discord delete <channel>` | Deletes the last message in a channel |
+| `discord purge <channel> <n>` | Bulk deletes up to 100 messages |
 
----
-
-## Requirements
-
-- You must have **Administrator** or **Manage Webhooks** permission in the Discord server
-- The channels you want to use must have webhooks created for them
+> **Example:** "discord baddie general hey guys" — sends "hey guys" to the general channel on the server nicknamed "baddie"
 
 ---
 
 ## Step 1 — Create a Webhook
 
-For each channel you want IPA to send messages to:
+For each channel you want VERA to send messages to:
 
 1. Open Discord and go to your server
 2. Right-click the channel → **Edit Channel**
 3. Go to the **Integrations** tab
 4. Click **Webhooks** → **New Webhook**
-5. Give it a name (e.g. "IPA") and click **Copy Webhook URL**
+5. Give it a name (e.g. "VERA") and click **Copy Webhook URL**
 6. Click **Save**
 
 ---
 
-## Step 2 — Get Your Server and Channel IDs
+## Step 2 — Add a Server (for multi-server support)
 
-To enable the **read discord** command you'll need your Server ID and Channel ID.
+If you use multiple Discord servers or want to use the `discord <server> <channel>` command format:
 
-**Enable Developer Mode first:**
-1. Open Discord → **User Settings** → **Advanced**
-2. Toggle on **Developer Mode**
+1. Open VERA and go to the **Discord** tab
+2. Under **Servers**, enter a **Nickname** (e.g. `baddie`) and the **Server ID**
+3. Click **Add Server**
 
-**Get your Server ID:**
-- Right-click your server icon → **Copy Server ID**
+**To get your Server ID:**
+1. Open Discord → **User Settings** → **Advanced** → enable **Developer Mode**
+2. Right-click your server icon → **Copy Server ID**
 
-**Channel name:**
-- IPA uses the channel name directly — just use the name as it appears in Discord (e.g. "general", "announcements")
-
----
-
-## Step 3 — Configure IPA
-
-1. Open the IPA UI
-2. Go to the **Settings** tab
-3. Fill in the following fields:
-   - **Discord Webhook URL** — the webhook URL you copied in Step 1
-   - **Server ID** — your Discord server ID
-   - **Bot Token** — required for reading messages (see below)
-   - Channel names are used directly in the voice command — no ID needed
-4. Click **Save**
+> If you only use one server, you can skip this step — the single-server commands still work without adding a server entry.
 
 ---
 
-## Bot Token (for Read Discord)
+## Step 3 — Add Channels
 
-Reading messages requires a Discord bot token. This is an advanced feature intended for server owners, administrators, and developers — the send command works with just the webhook and does not require a bot token.
+1. In the **Discord** tab, go to the **Channels** section
+2. Enter the **Channel name** (e.g. `general`)
+3. Optionally enter the **Server nickname** to tie this channel to a specific server (e.g. `baddie`)
+4. Paste the **Webhook URL** you copied in Step 1
+5. Click **Add Channel**
+6. Click **Save Config**
 
-To get a bot token:
+---
+
+## Step 4 — Bot Token (for Read Discord)
+
+Reading messages requires a Discord bot. This is optional — sending via webhook works without it.
+
+**Create a bot:**
 1. Go to [discord.com/developers/applications](https://discord.com/developers/applications)
-2. Click **New Application** and give it a name
+2. Click **New Application** → give it a name
 3. Go to the **Bot** tab → click **Add Bot**
 4. Under **Token** click **Copy**
-5. Paste it into the **Bot Token** field in IPA settings
+5. Paste it into the **Bot Token** field in VERA's Discord tab
+6. Add the bot to your server via OAuth2 → Bot scope with **Read Messages** permission
 
-> ⚠️ **Important:** Your bot token grants full access to your bot — treat it like a password. Never share it publicly, post it in a Discord server, or commit it to a public repository. If your token is ever leaked, reset it immediately in the Discord Developer Portal.
+**Add Server ID for reading:**
+- Enter your server's ID in the **Default Server ID** field (or add it via the Servers list with a nickname)
+
+> ⚠️ Your bot token grants full access to your bot — treat it like a password. Never share it publicly or commit it to a repository. If it's ever leaked, reset it immediately in the Discord Developer Portal.
+
+---
+
+## Voice Output (Discord TTS Mic)
+
+VERA can route the `read out <text>` command through a virtual microphone so Discord picks it up as your mic input — useful if you want to speak through Discord without using your real mic.
+
+**Setup:**
+1. Download and install **VB-Cable** (free) from [vb-audio.com/Cable](https://vb-audio.com/Cable)
+2. Reboot after install
+3. In VERA → **Settings** → **Voice Output** → select **CABLE Input (VB-Audio Virtual Cable)**
+4. In Discord → **User Settings** → **Voice & Video** → set **Input Device** to **CABLE Output**
+5. Say `read out hey guys` — it will play through Discord
+
+> All other VERA responses (confirmations, fallback, etc.) still play through your speakers. Only `read out` routes to the virtual mic.
 
 ---
 
 ## Troubleshooting
 
-**"IPA said the message failed to send"**
-- Double check your webhook URL is correct and hasn't been deleted
+**"Message failed to send"**
+- Check your webhook URL is correct and hasn't been deleted
 - Make sure you have an active internet connection
 
 **"Read discord isn't working"**
-- Make sure your bot token is entered correctly
-- Verify the Server ID and Channel ID are correct
-- The bot must be a member of your server to read messages
+- Make sure your bot token is entered and saved
+- Verify the Server ID is correct
+- The bot must be a member of your server with Read Messages permission
+
+**"Wrong server"**
+- If you have channels with the same name on different servers, use the server nickname: `discord baddie general hey`

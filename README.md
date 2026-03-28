@@ -20,7 +20,7 @@ Offline personal voice assistant for Windows. No cloud, no API key required — 
 The setup wizard opens automatically on first launch:
 
 1. Choose **Language** (English or Spanish)
-2. Choose **Mode** — Hold-to-talk, Hotkey, or Timed
+2. Choose **Mode** — Hold-to-talk, Toggle-to-talk, or Wake word
 3. Download a speech model if prompted (English model is bundled, Spanish downloads separately)
 4. Optional: **Import Steam Apps** to add your games as voice commands
 5. Click **Finish** — VERA starts listening in the background
@@ -40,7 +40,7 @@ Say `what can I say` at any time to hear all available commands.
 | Notes | `note <text>`, `open notes`, `delete last note` |
 | Clipboard | `copy that`, `read clipboard`, `clear clipboard` |
 | Keybinds | `reload` → presses R (configured in Actions tab) |
-| Discord | `discord <channel> <message>`, `read discord <channel>`, `discord delete <channel>`, `discord purge <channel> <n>` |
+| Discord | `discord <channel> <message>`, `discord <server> <channel> <message>`, `read discord <server> <channel>` |
 | System | `sleep computer`, `restart assistant` |
 | Conversation | `tell me a joke`, `what's your name`, `good morning` |
 

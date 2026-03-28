@@ -140,6 +140,9 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     command_var = state["command_var"]
     discord_ch_name_var = state["discord_ch_name_var"]
     discord_ch_url_var = state["discord_ch_url_var"]
+    discord_ch_server_var = state["discord_ch_server_var"]
+    discord_srv_nickname_var = state["discord_srv_nickname_var"]
+    discord_srv_id_var = state["discord_srv_id_var"]
     discord_bot_token_var = state["discord_bot_token_var"]
     discord_server_id_var = state["discord_server_id_var"]
     gemini_api_key_var = state["gemini_api_key_var"]
@@ -171,6 +174,8 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     _record_hold_key = callbacks["record_hold_key"]
     _add_discord_channel = callbacks["add_discord_channel"]
     _remove_discord_channel = callbacks["remove_discord_channel"]
+    _add_discord_server = callbacks["add_discord_server"]
+    _remove_discord_server = callbacks["remove_discord_server"]
     _add_keybind = callbacks["add_keybind"]
     _remove_keybind = callbacks["remove_keybind"]
     _record_keybind_key = callbacks["record_keybind_key"]
@@ -188,6 +193,7 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     tabview.add("Settings")
     tabview.add("Apps")
     tabview.add("Integrations")
+    tabview.add("Discord")
     tabview.add("Training")
     tabview.set("Home")
 
@@ -260,12 +266,10 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     mode_card = _card(settings_scroll)
 
     mode_row = _card_row(mode_card)
-    ctk.CTkRadioButton(mode_row, text="Timed mic", variable=mode,
-                       value="mic").pack(side="left", padx=(0, 16))
     ctk.CTkRadioButton(mode_row, text="Hold-to-talk", variable=mode,
                        value="hold").pack(side="left", padx=(0, 16))
-    ctk.CTkRadioButton(mode_row, text="Hotkey", variable=mode,
-                       value="hotkey").pack(side="left", padx=(0, 16))
+    ctk.CTkRadioButton(mode_row, text="Toggle-to-talk", variable=mode,
+                       value="toggle").pack(side="left", padx=(0, 16))
     ctk.CTkRadioButton(mode_row, text="Wake word", variable=mode,
                        value="wake",
                        command=callbacks["toggle_wake_word"]).pack(side="left")
@@ -284,7 +288,7 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
                       width=140).pack(side="left")
 
     rec_r2 = _card_row(rec_card)
-    ctk.CTkLabel(rec_r2, text="Hotkey", width=120).pack(side="left")
+    ctk.CTkLabel(rec_r2, text="Toggle key", width=120).pack(side="left")
     ctk.CTkEntry(rec_r2, textvariable=hotkey, width=160).pack(
         side="left", padx=(0, 10))
     _secondary_btn(rec_r2, text="Record",
@@ -456,56 +460,6 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
                  placeholder_text="Groq API key").pack(
         side="left", padx=(0, 10))
 
-    # -- Discord Credentials --
-    _section_header(integ_scroll, "Discord",
-                    "Connect a Discord bot to post messages by voice.")
-    discord_card = _card(integ_scroll)
-
-    disc_r1 = _card_row(discord_card)
-    ctk.CTkLabel(disc_r1, text="Bot Token", width=120).pack(side="left")
-    ctk.CTkEntry(disc_r1, textvariable=discord_bot_token_var, width=320,
-                 show="*",
-                 placeholder_text="Bot token from Discord Developer Portal"
-                 ).pack(side="left", padx=(0, 10))
-
-    disc_r2 = _card_row(discord_card)
-    ctk.CTkLabel(disc_r2, text="Server ID", width=120).pack(side="left")
-    ctk.CTkEntry(disc_r2, textvariable=discord_server_id_var, width=220,
-                 placeholder_text="Right-click server \u2192 Copy Server ID"
-                 ).pack(side="left", padx=(0, 10))
-
-    # -- Discord Channels --
-    _section_header(integ_scroll, "Discord Channels",
-                    "Say 'discord <channel> <message>' to post to a channel.")
-
-    discord_channels_textbox = ctk.CTkTextbox(integ_scroll, height=80,
-                                               corner_radius=8)
-    discord_channels_textbox.pack(fill="x", padx=PAD_OUTER, pady=4)
-
-    discord_input_card = _card(integ_scroll)
-
-    disc_ch_r1 = _card_row(discord_input_card)
-    ctk.CTkLabel(disc_ch_r1, text="Channel name", width=120).pack(
-        side="left")
-    ctk.CTkEntry(disc_ch_r1, textvariable=discord_ch_name_var, width=220,
-                 placeholder_text="e.g. general").pack(
-        side="left", padx=(0, 10))
-
-    disc_ch_r2 = _card_row(discord_input_card)
-    ctk.CTkLabel(disc_ch_r2, text="Webhook URL", width=120).pack(
-        side="left")
-    ctk.CTkEntry(disc_ch_r2, textvariable=discord_ch_url_var, width=320,
-                 placeholder_text="https://discord.com/api/webhooks/..."
-                 ).pack(side="left", padx=(0, 10))
-
-    discord_btns = _btn_row(integ_scroll)
-    _primary_btn(discord_btns, text="Add Channel",
-                 command=_add_discord_channel, width=120).pack(
-        side="left", padx=4)
-    _danger_btn(discord_btns, text="Remove Last",
-                command=_remove_discord_channel, width=120).pack(
-        side="right", padx=4)
-
     # -- Voice Actions --
     _section_header(integ_scroll, "Voice Actions",
                     "Map any spoken phrase to a shell command.")
@@ -585,6 +539,92 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
                  width=130).pack(side="left", padx=4)
     _danger_btn(kb_btns, text="Remove Selected", command=_remove_keybind,
                 width=130).pack(side="right", padx=4)
+
+    # =====================================================================
+    # DISCORD TAB
+    # =====================================================================
+    discord_scroll = ctk.CTkScrollableFrame(tabview.tab("Discord"))
+    discord_scroll.pack(fill="both", expand=True)
+
+    # -- Bot Credentials --
+    _section_header(discord_scroll, "Bot Credentials",
+                    "Required for 'read discord' command. Get your bot token from discord.dev.")
+    creds_card = _card(discord_scroll)
+
+    creds_r1 = _card_row(creds_card)
+    ctk.CTkLabel(creds_r1, text="Bot Token", width=120).pack(side="left")
+    ctk.CTkEntry(creds_r1, textvariable=discord_bot_token_var, width=320,
+                 show="*",
+                 placeholder_text="Bot token from Discord Developer Portal"
+                 ).pack(side="left", padx=(0, 10))
+
+    creds_r2 = _card_row(creds_card)
+    ctk.CTkLabel(creds_r2, text="Default Server ID", width=120).pack(side="left")
+    ctk.CTkEntry(creds_r2, textvariable=discord_server_id_var, width=220,
+                 placeholder_text="Right-click server \u2192 Copy Server ID"
+                 ).pack(side="left", padx=(0, 10))
+
+    # -- Servers --
+    _section_header(discord_scroll, "Servers",
+                    "Add servers with a nickname. Use 'discord <nickname> <channel> <message>'.")
+
+    import tkinter as _tk_disc
+    discord_servers_textbox = _tk_disc.Listbox(
+        discord_scroll, height=4, selectmode="single",
+        bg="#2b2b2b", fg="white", selectbackground="#1f538d",
+        relief="flat", highlightthickness=0, font=("Segoe UI", 12))
+    discord_servers_textbox.pack(fill="x", padx=PAD_OUTER, pady=4)
+
+    srv_input_card = _card(discord_scroll)
+    srv_r1 = _card_row(srv_input_card)
+    ctk.CTkLabel(srv_r1, text="Nickname", width=120).pack(side="left")
+    ctk.CTkEntry(srv_r1, textvariable=discord_srv_nickname_var, width=160,
+                 placeholder_text="e.g. baddie").pack(side="left", padx=(0, 10))
+
+    srv_r2 = _card_row(srv_input_card)
+    ctk.CTkLabel(srv_r2, text="Server ID", width=120).pack(side="left")
+    ctk.CTkEntry(srv_r2, textvariable=discord_srv_id_var, width=220,
+                 placeholder_text="Right-click server \u2192 Copy Server ID"
+                 ).pack(side="left", padx=(0, 10))
+
+    srv_btns = _btn_row(discord_scroll)
+    _primary_btn(srv_btns, text="Add Server", command=_add_discord_server, width=120).pack(side="left", padx=4)
+    _danger_btn(srv_btns, text="Remove Selected", command=_remove_discord_server, width=140).pack(side="left", padx=4)
+
+    # -- Channels --
+    _section_header(discord_scroll, "Channels",
+                    "Webhook channels. Optionally tag a server so 'discord <server> <channel>' works.")
+
+    discord_channels_textbox = _tk_disc.Listbox(
+        discord_scroll, height=5, selectmode="single",
+        bg="#2b2b2b", fg="white", selectbackground="#1f538d",
+        relief="flat", highlightthickness=0, font=("Segoe UI", 12))
+    discord_channels_textbox.pack(fill="x", padx=PAD_OUTER, pady=4)
+
+    ch_input_card = _card(discord_scroll)
+    ch_r1 = _card_row(ch_input_card)
+    ctk.CTkLabel(ch_r1, text="Channel name", width=120).pack(side="left")
+    ctk.CTkEntry(ch_r1, textvariable=discord_ch_name_var, width=180,
+                 placeholder_text="e.g. general").pack(side="left", padx=(0, 10))
+
+    ch_r2 = _card_row(ch_input_card)
+    ctk.CTkLabel(ch_r2, text="Server nickname", width=120).pack(side="left")
+    ctk.CTkEntry(ch_r2, textvariable=discord_ch_server_var, width=180,
+                 placeholder_text="optional — e.g. baddie").pack(side="left", padx=(0, 10))
+
+    ch_r3 = _card_row(ch_input_card)
+    ctk.CTkLabel(ch_r3, text="Webhook URL", width=120).pack(side="left")
+    ctk.CTkEntry(ch_r3, textvariable=discord_ch_url_var, width=320,
+                 placeholder_text="https://discord.com/api/webhooks/..."
+                 ).pack(side="left", padx=(0, 10))
+
+    ch_btns = _btn_row(discord_scroll)
+    _primary_btn(ch_btns, text="Add Channel", command=_add_discord_channel, width=120).pack(side="left", padx=4)
+    _danger_btn(ch_btns, text="Remove Selected", command=_remove_discord_channel, width=140).pack(side="left", padx=4)
+
+    ctk.CTkLabel(discord_scroll,
+                 text="Commands: 'discord <channel> <message>'  |  'discord <server> <channel> <message>'  |  'read discord <server> <channel>'",
+                 font=FONT_HELP, text_color=COLOR_HELP, wraplength=560).pack(anchor="w", padx=PAD_OUTER, pady=(8, 0))
 
     # =====================================================================
     # TRAINING TAB
@@ -714,6 +754,7 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
         "actions_textbox": actions_textbox,
         "history_textbox": history_textbox,
         "discord_channels_textbox": discord_channels_textbox,
+        "discord_servers_textbox": discord_servers_textbox,
         "keybinds_textbox": keybinds_textbox,
         "tabview": tabview,
     }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.88.0
+- Multi-server Discord support — add servers with nicknames; use 'discord <server> <channel> <message>' to target specific servers
+- Discord tab — dedicated tab for all Discord config; moved out of Integrations
+- Toggle-to-talk mode — press once to start, press again to stop; replaces timed mic mode
+
 ## 0.87.0
 - Mishear Training UI — new Training tab shows transcripts VERA didn't understand; click one, type what you meant, save; corrections apply immediately without restart
 - PTT beep volume — slider in Settings (0–100%) controls how loud the push-to-talk beeps are

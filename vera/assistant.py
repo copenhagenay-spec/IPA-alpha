@@ -58,20 +58,43 @@ class BackgroundListener:
         self.stop_event.clear()
         self.recording_flag.clear()
 
-    def start_hotkey(self, hotkey: str, seconds: int, model_path: str, confirm_fn, on_text=None, restart_fn=None):
+    def start_toggle(self, toggle_key: str, model_path: str, confirm_fn, on_text=None, restart_fn=None, on_record_start=None, on_record_end=None):
         from pynput import keyboard  # type: ignore
 
         def _record():
-            text = _run_mic(seconds, model_path, confirm_fn=confirm_fn, allow_prompt=False, restart_fn=restart_fn)
+            if on_record_start:
+                on_record_start()
+            text = _run_hold(self.stop_event, toggle_key, model_path, confirm_fn=confirm_fn, restart_fn=restart_fn)
+            if on_record_end:
+                on_record_end()
             if on_text and text:
                 on_text(text)
+            self.recording_flag.clear()
+            self.stop_event.clear()
 
-        def _on_activate():
-            threading.Thread(target=_record, daemon=True).start()
+        key_obj = _resolve_hold_key(toggle_key, keyboard)
+        if not key_obj:
+            raise ValueError("Invalid toggle key")
+
+        def _on_press(key):
+            if key == key_obj:
+                if not self.recording_flag.is_set():
+                    # First press — start recording
+                    self.recording_flag.set()
+                    def _start():
+                        threading.Thread(target=_record, daemon=True).start()
+                        time.sleep(0.5)
+                        _ptt_beep(660, 60, load_config().get("ptt_beep_volume", 80))
+                    threading.Thread(target=_start, daemon=True).start()
+                else:
+                    # Second press — stop recording
+                    _ptt_beep(440, 60, load_config().get("ptt_beep_volume", 80))
+                    time.sleep(0.1)
+                    self.stop_event.set()
 
         self.stop()
-        self.mode = "hotkey"
-        self.listener = keyboard.GlobalHotKeys({str(hotkey): _on_activate})
+        self.mode = "toggle"
+        self.listener = keyboard.Listener(on_press=_on_press)
         self.listener.start()
 
     def start_hold(self, hold_key: str, model_path: str, confirm_fn, on_text=None, restart_fn=None, on_record_start=None, on_record_end=None):
@@ -330,7 +353,10 @@ def main() -> None:
 
     # --- Tk variables (these still use tkinter StringVar/BooleanVar) ---
     theme_var = tk.BooleanVar(value=is_dark)
-    mode = tk.StringVar(value=cfg.get("mode", "mic"))
+    _saved_mode = cfg.get("mode", "hold")
+    if _saved_mode == "mic":
+        _saved_mode = "hold"  # migrate old timed mic users to hold
+    mode = tk.StringVar(value=_saved_mode)
     language = tk.StringVar(value=cfg.get("language", "English"))
     seconds = tk.StringVar(value=str(cfg.get("seconds", 5)))
     hotkey = tk.StringVar(value=cfg.get("hotkey", HOTKEY_CHOICES[0]))
@@ -374,8 +400,27 @@ def main() -> None:
     discord_channels = []
     discord_cfg = cfg.get("discord_channels", {})
     if isinstance(discord_cfg, dict):
+        # Legacy format: {"channel": "url"}
         for name, url in discord_cfg.items():
-            discord_channels.append({"name": str(name).lower(), "url": str(url)})
+            discord_channels.append({"name": str(name).lower(), "url": str(url), "server": ""})
+    elif isinstance(discord_cfg, list):
+        for ch in discord_cfg:
+            if isinstance(ch, dict) and ch.get("name") and ch.get("url"):
+                discord_channels.append({
+                    "name": str(ch.get("name", "")).strip().lower(),
+                    "url": str(ch.get("url", "")).strip(),
+                    "server": str(ch.get("server", "")).strip().lower(),
+                })
+
+    discord_servers = []
+    discord_servers_cfg = cfg.get("discord_servers", [])
+    if isinstance(discord_servers_cfg, list):
+        for s in discord_servers_cfg:
+            if isinstance(s, dict) and s.get("nickname"):
+                discord_servers.append({
+                    "nickname": str(s.get("nickname", "")).strip().lower(),
+                    "server_id": str(s.get("server_id", "")).strip(),
+                })
 
     keybinds = cfg.get("keybinds", [])
     if not isinstance(keybinds, list):
@@ -404,8 +449,11 @@ def main() -> None:
     command_var = tk.StringVar()
     discord_ch_name_var = tk.StringVar()
     discord_ch_url_var = tk.StringVar()
+    discord_ch_server_var = tk.StringVar()
     discord_bot_token_var = tk.StringVar(value=cfg.get("discord_bot_token", ""))
     discord_server_id_var = tk.StringVar(value=cfg.get("discord_server_id", ""))
+    discord_srv_nickname_var = tk.StringVar()
+    discord_srv_id_var = tk.StringVar()
     gemini_api_key_var = tk.StringVar(value=cfg.get("gemini_api_key", ""))
     keybind_phrase_var = tk.StringVar()
     keybind_key_var = tk.StringVar()
@@ -414,6 +462,7 @@ def main() -> None:
     aliases_textbox = None
     actions_textbox = None
     discord_channels_textbox = None
+    discord_servers_textbox = None
     keybinds_textbox = None
     listener = BackgroundListener()
     tray_icon = {"icon": None}
@@ -453,7 +502,8 @@ def main() -> None:
             "actions": [a for a in actions if a.get("phrase") and a.get("command")],
             "apps": {a.get("name"): a.get("command") for a in apps if a.get("name") and a.get("command")},
             "app_aliases": {a.get("alias"): a.get("target") for a in aliases if a.get("alias") and a.get("target")},
-            "discord_channels": {a.get("name"): a.get("url") for a in discord_channels if a.get("name") and a.get("url")},
+            "discord_channels": [{"name": a.get("name"), "url": a.get("url"), "server": a.get("server", "")} for a in discord_channels if a.get("name") and a.get("url")],
+            "discord_servers": [s for s in discord_servers if s.get("nickname") and s.get("server_id")],
             "discord_bot_token": discord_bot_token_var.get().strip(),
             "discord_server_id": discord_server_id_var.get().strip(),
             "gemini_api_key": gemini_api_key_var.get().strip(),
@@ -937,31 +987,62 @@ def main() -> None:
         apps.pop(-1)
         _refresh_apps()
 
+    # --- Discord servers helpers ---
+    def _refresh_discord_servers():
+        if discord_servers_textbox is None:
+            return
+        discord_servers_textbox.delete(0, "end")
+        for s in discord_servers:
+            discord_servers_textbox.insert("end", f"{s.get('nickname')}  ->  {s.get('server_id')}")
+
+    def _add_discord_server():
+        nickname = discord_srv_nickname_var.get().strip().lower()
+        server_id = discord_srv_id_var.get().strip()
+        if not nickname or not server_id:
+            messagebox.showerror("Invalid", "Nickname and Server ID are required.")
+            return
+        discord_servers.append({"nickname": nickname, "server_id": server_id})
+        discord_srv_nickname_var.set("")
+        discord_srv_id_var.set("")
+        _refresh_discord_servers()
+
+    def _remove_discord_server():
+        if discord_servers_textbox is None or not discord_servers:
+            return
+        sel = discord_servers_textbox.curselection()
+        idx = sel[0] if sel else len(discord_servers) - 1
+        discord_servers.pop(idx)
+        _refresh_discord_servers()
+
     # --- Discord channels helpers ---
     def _refresh_discord_channels():
         if discord_channels_textbox is None:
             return
-        discord_channels_textbox.configure(state="normal")
-        discord_channels_textbox.delete("1.0", "end")
+        discord_channels_textbox.delete(0, "end")
         for ch in discord_channels:
-            discord_channels_textbox.insert("end", f"#{ch.get('name')}  ->  {ch.get('url')}\n")
-        discord_channels_textbox.configure(state="disabled")
+            server = ch.get("server", "")
+            prefix = f"[{server}] " if server else ""
+            discord_channels_textbox.insert("end", f"{prefix}#{ch.get('name')}  ->  {ch.get('url')}")
 
     def _add_discord_channel():
         name = discord_ch_name_var.get().strip().lower()
         url = discord_ch_url_var.get().strip()
+        server = discord_ch_server_var.get().strip().lower()
         if not name or not url:
             messagebox.showerror("Invalid", "Channel name and webhook URL are required.")
             return
-        discord_channels.append({"name": name, "url": url})
+        discord_channels.append({"name": name, "url": url, "server": server})
         discord_ch_name_var.set("")
         discord_ch_url_var.set("")
+        discord_ch_server_var.set("")
         _refresh_discord_channels()
 
     def _remove_discord_channel():
-        if not discord_channels:
+        if discord_channels_textbox is None or not discord_channels:
             return
-        discord_channels.pop(-1)
+        sel = discord_channels_textbox.curselection()
+        idx = sel[0] if sel else len(discord_channels) - 1
+        discord_channels.pop(idx)
         _refresh_discord_channels()
 
     # --- Keybinds helpers ---
@@ -1130,16 +1211,14 @@ def main() -> None:
             secs = int(seconds.get())
         except Exception:
             secs = 5
-        if mode.get() == "mic":
-            def _run():
-                text = _run_mic(secs, _model_dir(), confirm_fn=_confirm_prompt, allow_prompt=True, restart_fn=_do_restart)
-                if text:
-                    root.after(0, lambda: _update_transcript(text))
-            threading.Thread(target=_run, daemon=True).start()
-        elif mode.get() == "hold":
+        if mode.get() == "hold":
             messagebox.showinfo("Hold Mode", "Hold mode only runs in the background.")
+        elif mode.get() == "toggle":
+            messagebox.showinfo("Toggle Mode", "Toggle mode only runs in the background.")
+        elif mode.get() == "wake":
+            messagebox.showinfo("Wake Word Mode", "Wake word mode only runs in the background.")
         else:
-            messagebox.showinfo("Hotkey Mode", "Hotkey mode only runs in the background.")
+            messagebox.showinfo("Info", "Start Background to begin listening.")
 
     def _start_background():
         try:
@@ -1159,16 +1238,18 @@ def main() -> None:
                     on_record_end=lambda: root.after(0, lambda: status_var.set(_hold_label)),
                 )
                 status_var.set(_hold_label)
-            elif mode.get() == "hotkey":
-                listener.start_hotkey(
+            elif mode.get() == "toggle":
+                _toggle_label = f"Listening (toggle {hotkey.get()})"
+                listener.start_toggle(
                     hotkey.get(),
-                    secs,
                     model_path=_model_dir(),
                     confirm_fn=_confirm_prompt,
                     on_text=lambda t: root.after(0, lambda: _update_transcript(t)),
                     restart_fn=_do_restart,
+                    on_record_start=lambda: root.after(0, lambda: status_var.set("Recording...")),
+                    on_record_end=lambda: root.after(0, lambda: status_var.set(_toggle_label)),
                 )
-                status_var.set(f"Listening (hotkey {hotkey.get()})")
+                status_var.set(_toggle_label)
             elif mode.get() == "wake":
                 _start_wake_word()
                 status_var.set("Wake word active (say 'vera')")
@@ -1557,6 +1638,9 @@ def main() -> None:
         "command_var": command_var,
         "discord_ch_name_var": discord_ch_name_var,
         "discord_ch_url_var": discord_ch_url_var,
+        "discord_ch_server_var": discord_ch_server_var,
+        "discord_srv_nickname_var": discord_srv_nickname_var,
+        "discord_srv_id_var": discord_srv_id_var,
         "discord_bot_token_var": discord_bot_token_var,
         "discord_server_id_var": discord_server_id_var,
         "gemini_api_key_var": gemini_api_key_var,
@@ -1590,6 +1674,8 @@ def main() -> None:
         "record_hold_key": _record_hold_key,
         "add_discord_channel": _add_discord_channel,
         "remove_discord_channel": _remove_discord_channel,
+        "add_discord_server": _add_discord_server,
+        "remove_discord_server": _remove_discord_server,
         "add_keybind": _add_keybind,
         "remove_keybind": _remove_keybind,
         "record_keybind_key": _record_keybind_step,
@@ -1606,6 +1692,7 @@ def main() -> None:
     actions_textbox = widgets.get("actions_textbox")
     history_textbox = widgets.get("history_textbox")
     discord_channels_textbox = widgets.get("discord_channels_textbox")
+    discord_servers_textbox = widgets.get("discord_servers_textbox")
     keybinds_textbox = widgets.get("keybinds_textbox")
     transcript_history = []
 
@@ -1627,6 +1714,7 @@ def main() -> None:
     _refresh_apps()
     _refresh_aliases()
     _refresh_discord_channels()
+    _refresh_discord_servers()
     _refresh_keybinds()
     if not cfg.get("wizard_done"):
         _run_wizard()
