@@ -107,6 +107,88 @@ def _btn_row(parent):
     return row
 
 
+def _make_scrollable(parent):
+    frame = ctk.CTkScrollableFrame(
+        parent,
+        fg_color="transparent",
+        corner_radius=0,
+    )
+    frame.pack(fill="both", expand=True)
+    return frame
+
+
+def _scroll_canvas(scrollable):
+    return getattr(scrollable, "_parent_canvas", None)
+
+
+def _queue_native_scroll(canvas, delta: int) -> None:
+    if canvas is None:
+        return
+    pending = int(getattr(canvas, "_vera_scroll_pending", 0)) + int(delta)
+    canvas._vera_scroll_pending = pending
+    if getattr(canvas, "_vera_scroll_scheduled", False):
+        return
+
+    canvas._vera_scroll_scheduled = True
+
+    def _flush():
+        canvas._vera_scroll_scheduled = False
+        pending_delta = int(getattr(canvas, "_vera_scroll_pending", 0))
+        canvas._vera_scroll_pending = 0
+        if pending_delta == 0:
+            return
+        direction = -1 if pending_delta > 0 else 1
+        steps = max(1, min(8, int(abs(pending_delta) / 120) + 1))
+        try:
+            canvas.yview_scroll(direction * steps, "units")
+        except Exception:
+            pass
+
+    canvas.after(12, _flush)
+
+
+def install_smooth_scrolling(root, *scrollables) -> None:
+    registered = list(getattr(root, "_vera_scrollables", []))
+    for scrollable in scrollables:
+        if scrollable not in registered:
+            registered.append(scrollable)
+    root._vera_scrollables = registered
+    if getattr(root, "_vera_scroll_bound", False):
+        return
+
+    def _find_scrollable(widget):
+        current = widget
+        while current is not None:
+            for scrollable in root._vera_scrollables:
+                if current is scrollable:
+                    return scrollable
+            current = getattr(current, "master", None)
+        return None
+
+    def _on_mousewheel(event):
+        widget = root.winfo_containing(event.x_root, event.y_root)
+        scrollable = _find_scrollable(widget)
+        if scrollable is None:
+            return
+        canvas = _scroll_canvas(scrollable)
+        if canvas is None:
+            return "break"
+        delta = event.delta
+        if delta == 0 and getattr(event, "num", None) == 4:
+            delta = 120
+        elif delta == 0 and getattr(event, "num", None) == 5:
+            delta = -120
+        if delta == 0:
+            return "break"
+        _queue_native_scroll(canvas, delta)
+        return "break"
+
+    root.bind_all("<MouseWheel>", _on_mousewheel, add="+")
+    root.bind_all("<Button-4>", _on_mousewheel, add="+")
+    root.bind_all("<Button-5>", _on_mousewheel, add="+")
+    root._vera_scroll_bound = True
+
+
 # ---------------------------------------------------------------------------
 # Main build function
 # ---------------------------------------------------------------------------
@@ -121,6 +203,8 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     seconds = state["seconds"]
     hotkey = state["hotkey"]
     holdkey = state["holdkey"]
+    hotkey_display = state["hotkey_display"]
+    holdkey_display = state["holdkey_display"]
     search_engine = state["search_engine"]
     confirm_actions = state["confirm_actions"]
     ptt_beep_volume = state["ptt_beep_volume"]
@@ -179,6 +263,7 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     _add_keybind = callbacks["add_keybind"]
     _remove_keybind = callbacks["remove_keybind"]
     _record_keybind_key = callbacks["record_keybind_key"]
+    _on_mode_change = callbacks["mode_changed"]
 
     def _toggle_theme():
         new_mode = "dark" if state["theme_var"].get() else "light"
@@ -200,15 +285,14 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     # =====================================================================
     # HOME TAB
     # =====================================================================
-    home_scroll = ctk.CTkScrollableFrame(tabview.tab("Home"))
-    home_scroll.pack(fill="both", expand=True)
+    home_scroll = _make_scrollable(tabview.tab("Home"))
 
     # -- Logo --
     logo_img = _load_logo()
     if logo_img is not None:
         logo_label = ctk.CTkLabel(home_scroll, image=logo_img, text="", bg_color="transparent")
         logo_label.pack(pady=(10, 2))
-        ctk.CTkLabel(home_scroll, text="VERA", font=("Segoe UI", 22, "bold"), bg_color="transparent").pack(pady=(0, 6))
+        ctk.CTkLabel(home_scroll, text="V  E  R  A", font=("Segoe UI", 24, "bold"), text_color=("#4a7c59", "#a8d5b5"), bg_color="transparent").pack(pady=(0, 6))
 
     # -- Primary Controls (swap based on mode) --
     _section_header(home_scroll, "Controls")
@@ -251,14 +335,7 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     # =====================================================================
     # SETTINGS TAB
     # =====================================================================
-    settings_scroll = ctk.CTkScrollableFrame(tabview.tab("Settings"))
-    settings_scroll.pack(fill="both", expand=True)
-
-    # -- Save Config (top of page) --
-    save_row = ctk.CTkFrame(settings_scroll, fg_color="transparent")
-    save_row.pack(fill="x", padx=PAD_OUTER, pady=(10, 4))
-    _primary_btn(save_row, text="Save Config", command=_save,
-                 width=200).pack(side="left", padx=4)
+    settings_scroll = _make_scrollable(tabview.tab("Settings"))
 
     # -- Listening Mode --
     _section_header(settings_scroll, "Listening Mode",
@@ -267,12 +344,12 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
 
     mode_row = _card_row(mode_card)
     ctk.CTkRadioButton(mode_row, text="Hold-to-talk", variable=mode,
-                       value="hold").pack(side="left", padx=(0, 16))
+                       value="hold", command=_on_mode_change).pack(side="left", padx=(0, 16))
     ctk.CTkRadioButton(mode_row, text="Toggle-to-talk", variable=mode,
-                       value="toggle").pack(side="left", padx=(0, 16))
+                       value="toggle", command=_on_mode_change).pack(side="left", padx=(0, 16))
     ctk.CTkRadioButton(mode_row, text="Wake word", variable=mode,
                        value="wake",
-                       command=callbacks["toggle_wake_word"]).pack(side="left")
+                       command=_on_mode_change).pack(side="left")
 
     # -- Recording Settings --
     _section_header(settings_scroll, "Recording Settings",
@@ -289,7 +366,7 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
 
     rec_r2 = _card_row(rec_card)
     ctk.CTkLabel(rec_r2, text="Toggle key", width=120).pack(side="left")
-    ctk.CTkEntry(rec_r2, textvariable=hotkey, width=160).pack(
+    ctk.CTkEntry(rec_r2, textvariable=hotkey_display, width=160).pack(
         side="left", padx=(0, 10))
     _secondary_btn(rec_r2, text="Record",
                    command=lambda: _record_hotkey(hotkey),
@@ -297,7 +374,7 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
 
     rec_r3 = _card_row(rec_card)
     ctk.CTkLabel(rec_r3, text="Hold key", width=120).pack(side="left")
-    ctk.CTkEntry(rec_r3, textvariable=holdkey, width=160).pack(
+    ctk.CTkEntry(rec_r3, textvariable=holdkey_display, width=160).pack(
         side="left", padx=(0, 10))
     _secondary_btn(rec_r3, text="Record",
                    command=lambda: _record_hold_key(holdkey),
@@ -378,8 +455,7 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     # =====================================================================
     # APPS TAB
     # =====================================================================
-    apps_scroll = ctk.CTkScrollableFrame(tabview.tab("Apps"))
-    apps_scroll.pack(fill="both", expand=True)
+    apps_scroll = _make_scrollable(tabview.tab("Apps"))
 
     # -- Registered Apps --
     _section_header(apps_scroll, "Registered Apps",
@@ -444,13 +520,14 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     # =====================================================================
     # INTEGRATIONS TAB
     # =====================================================================
-    integ_scroll = ctk.CTkScrollableFrame(tabview.tab("Integrations"))
-    integ_scroll.pack(fill="both", expand=True)
+    integ_scroll = _make_scrollable(tabview.tab("Integrations"))
 
     # -- AI (Groq) --
-    _section_header(integ_scroll, "AI Assistant",
-                    "Say 'ask <question>' to query AI. "
-                    "Get your free key at console.groq.com \u2192 API Keys.")
+    _section_header(
+        integ_scroll,
+        "AI Assistant",
+        "Use `ask <question>` to query AI.\nGet your free key at console.groq.com -> API Keys.",
+    )
     ai_card = _card(integ_scroll)
 
     ai_row = _card_row(ai_card)
@@ -461,16 +538,36 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
         side="left", padx=(0, 10))
 
     # -- Voice Actions --
-    _section_header(integ_scroll, "Voice Actions",
-                    "Map any spoken phrase to a shell command.")
+    _section_header(
+        integ_scroll,
+        "Voice Actions",
+        "Map a spoken phrase to a shell command.\nExample: `lock my computer` -> `rundll32.exe user32.dll,LockWorkStation`",
+    )
 
     import tkinter as _tk_act
-    actions_textbox = _tk_act.Listbox(integ_scroll, height=6, selectmode="single",
-                                      bg="#2b2b2b", fg="white", selectbackground="#1f538d",
-                                      relief="flat", highlightthickness=0, font=("Segoe UI", 12))
-    actions_textbox.pack(fill="x", padx=PAD_OUTER, pady=4)
+    actions_frame = ctk.CTkFrame(integ_scroll, corner_radius=8)
+    actions_frame.pack(fill="x", padx=PAD_OUTER, pady=(2, 2))
+    actions_textbox = _tk_act.Listbox(
+        actions_frame,
+        height=6,
+        selectmode="single",
+        activestyle="none",
+        exportselection=False,
+        bg="#262626",
+        fg="white",
+        selectbackground="#2563eb",
+        selectforeground="white",
+        relief="flat",
+        borderwidth=0,
+        highlightthickness=1,
+        highlightbackground="#404040",
+        highlightcolor="#2563eb",
+        font=("Segoe UI Semibold", 11),
+    )
+    actions_textbox.pack(fill="x", padx=8, pady=8)
 
     action_input_card = _card(integ_scroll)
+    action_input_card.pack_configure(pady=(2, 4))
 
     act_r1 = _card_row(action_input_card)
     ctk.CTkLabel(act_r1, text="Phrase", width=100).pack(side="left")
@@ -486,6 +583,7 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     ).pack(side="left", padx=(0, 10))
 
     action_btns = _btn_row(integ_scroll)
+    action_btns.pack_configure(pady=(4, PAD_SECTION))
     _primary_btn(action_btns, text="Add Action", command=_add_action,
                  width=130).pack(side="left", padx=4)
     _danger_btn(action_btns, text="Remove Selected", command=_remove_action,
@@ -501,15 +599,32 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
         text_color=COLOR_WARN,
         font=FONT_HELP,
         wraplength=520,
-    ).pack(anchor="w", padx=PAD_OUTER, pady=(0, 6))
+    ).pack(anchor="w", padx=PAD_OUTER, pady=(0, 4))
 
     import tkinter as _tk_kb
-    keybinds_textbox = _tk_kb.Listbox(integ_scroll, height=6, selectmode="single",
-                                       bg="#2b2b2b", fg="white", selectbackground="#1f538d",
-                                       relief="flat", highlightthickness=0, font=("Segoe UI", 12))
-    keybinds_textbox.pack(fill="x", padx=PAD_OUTER, pady=4)
+    keybinds_frame = ctk.CTkFrame(integ_scroll, corner_radius=8)
+    keybinds_frame.pack(fill="x", padx=PAD_OUTER, pady=(2, 2))
+    keybinds_textbox = _tk_kb.Listbox(
+        keybinds_frame,
+        height=6,
+        selectmode="single",
+        activestyle="none",
+        exportselection=False,
+        bg="#262626",
+        fg="white",
+        selectbackground="#2563eb",
+        selectforeground="white",
+        relief="flat",
+        borderwidth=0,
+        highlightthickness=1,
+        highlightbackground="#404040",
+        highlightcolor="#2563eb",
+        font=("Segoe UI Semibold", 11),
+    )
+    keybinds_textbox.pack(fill="x", padx=8, pady=8)
 
     kb_input_card = _card(integ_scroll)
+    kb_input_card.pack_configure(pady=(2, 4))
 
     kb_r1 = _card_row(kb_input_card)
     ctk.CTkLabel(kb_r1, text="Phrase", width=100).pack(side="left")
@@ -535,6 +650,7 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
                  text_color=COLOR_HELP).pack(side="left")
 
     kb_btns = _btn_row(integ_scroll)
+    kb_btns.pack_configure(pady=(4, PAD_SECTION))
     _primary_btn(kb_btns, text="Add Key Bind", command=_add_keybind,
                  width=130).pack(side="left", padx=4)
     _danger_btn(kb_btns, text="Remove Selected", command=_remove_keybind,
@@ -543,12 +659,14 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     # =====================================================================
     # DISCORD TAB
     # =====================================================================
-    discord_scroll = ctk.CTkScrollableFrame(tabview.tab("Discord"))
-    discord_scroll.pack(fill="both", expand=True)
+    discord_scroll = _make_scrollable(tabview.tab("Discord"))
 
     # -- Bot Credentials --
-    _section_header(discord_scroll, "Bot Credentials",
-                    "Required for 'read discord' command. Get your bot token from discord.dev.")
+    _section_header(
+        discord_scroll,
+        "Bot Credentials",
+        "Required for `read discord`.\nGet your bot token from discord.dev.",
+    )
     creds_card = _card(discord_scroll)
 
     creds_r1 = _card_row(creds_card)
@@ -565,17 +683,36 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
                  ).pack(side="left", padx=(0, 10))
 
     # -- Servers --
-    _section_header(discord_scroll, "Servers",
-                    "Add servers with a nickname. Use 'discord <nickname> <channel> <message>'.")
+    _section_header(
+        discord_scroll,
+        "Servers",
+        "Add servers with a nickname.\nExample: `discord <nickname> <channel> <message>`",
+    )
 
     import tkinter as _tk_disc
+    discord_servers_frame = ctk.CTkFrame(discord_scroll, corner_radius=8)
+    discord_servers_frame.pack(fill="x", padx=PAD_OUTER, pady=(2, 2))
     discord_servers_textbox = _tk_disc.Listbox(
-        discord_scroll, height=4, selectmode="single",
-        bg="#2b2b2b", fg="white", selectbackground="#1f538d",
-        relief="flat", highlightthickness=0, font=("Segoe UI", 12))
-    discord_servers_textbox.pack(fill="x", padx=PAD_OUTER, pady=4)
+        discord_servers_frame,
+        height=4,
+        selectmode="single",
+        activestyle="none",
+        exportselection=False,
+        bg="#262626",
+        fg="white",
+        selectbackground="#2563eb",
+        selectforeground="white",
+        relief="flat",
+        borderwidth=0,
+        highlightthickness=1,
+        highlightbackground="#404040",
+        highlightcolor="#2563eb",
+        font=("Segoe UI Semibold", 11),
+    )
+    discord_servers_textbox.pack(fill="x", padx=8, pady=8)
 
     srv_input_card = _card(discord_scroll)
+    srv_input_card.pack_configure(pady=(2, 4))
     srv_r1 = _card_row(srv_input_card)
     ctk.CTkLabel(srv_r1, text="Nickname", width=120).pack(side="left")
     ctk.CTkEntry(srv_r1, textvariable=discord_srv_nickname_var, width=160,
@@ -588,20 +725,40 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
                  ).pack(side="left", padx=(0, 10))
 
     srv_btns = _btn_row(discord_scroll)
+    srv_btns.pack_configure(pady=(4, PAD_SECTION))
     _primary_btn(srv_btns, text="Add Server", command=_add_discord_server, width=120).pack(side="left", padx=4)
     _danger_btn(srv_btns, text="Remove Selected", command=_remove_discord_server, width=140).pack(side="left", padx=4)
 
     # -- Channels --
-    _section_header(discord_scroll, "Channels",
-                    "Webhook channels. Optionally tag a server so 'discord <server> <channel>' works.")
+    _section_header(
+        discord_scroll,
+        "Channels",
+        "Webhook channels.\nOptionally tag a server so `discord <server> <channel>` works.",
+    )
 
+    discord_channels_frame = ctk.CTkFrame(discord_scroll, corner_radius=8)
+    discord_channels_frame.pack(fill="x", padx=PAD_OUTER, pady=(2, 2))
     discord_channels_textbox = _tk_disc.Listbox(
-        discord_scroll, height=5, selectmode="single",
-        bg="#2b2b2b", fg="white", selectbackground="#1f538d",
-        relief="flat", highlightthickness=0, font=("Segoe UI", 12))
-    discord_channels_textbox.pack(fill="x", padx=PAD_OUTER, pady=4)
+        discord_channels_frame,
+        height=5,
+        selectmode="single",
+        activestyle="none",
+        exportselection=False,
+        bg="#262626",
+        fg="white",
+        selectbackground="#2563eb",
+        selectforeground="white",
+        relief="flat",
+        borderwidth=0,
+        highlightthickness=1,
+        highlightbackground="#404040",
+        highlightcolor="#2563eb",
+        font=("Segoe UI Semibold", 11),
+    )
+    discord_channels_textbox.pack(fill="x", padx=8, pady=8)
 
     ch_input_card = _card(discord_scroll)
+    ch_input_card.pack_configure(pady=(2, 4))
     ch_r1 = _card_row(ch_input_card)
     ctk.CTkLabel(ch_r1, text="Channel name", width=120).pack(side="left")
     ctk.CTkEntry(ch_r1, textvariable=discord_ch_name_var, width=180,
@@ -619,27 +776,37 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
                  ).pack(side="left", padx=(0, 10))
 
     ch_btns = _btn_row(discord_scroll)
+    ch_btns.pack_configure(pady=(4, PAD_SECTION))
     _primary_btn(ch_btns, text="Add Channel", command=_add_discord_channel, width=120).pack(side="left", padx=4)
     _danger_btn(ch_btns, text="Remove Selected", command=_remove_discord_channel, width=140).pack(side="left", padx=4)
 
-    ctk.CTkLabel(discord_scroll,
-                 text="Commands: 'discord <channel> <message>'  |  'discord <server> <channel> <message>'  |  'read discord <server> <channel>'",
-                 font=FONT_HELP, text_color=COLOR_HELP, wraplength=560).pack(anchor="w", padx=PAD_OUTER, pady=(8, 0))
+    ctk.CTkLabel(
+        discord_scroll,
+        text=(
+            "Commands\n"
+            "discord <channel> <message>\n"
+            "discord <server> <channel> <message>\n"
+            "read discord <server> <channel>"
+        ),
+        font=FONT_HELP,
+        text_color=COLOR_HELP,
+        justify="left",
+        wraplength=560,
+    ).pack(anchor="w", padx=PAD_OUTER, pady=(8, 0))
 
     # =====================================================================
     # TRAINING TAB
     # =====================================================================
     from skills import load_unmatched, save_user_mishear, dismiss_unmatched
 
-    training_scroll = ctk.CTkScrollableFrame(tabview.tab("Training"))
-    training_scroll.pack(fill="both", expand=True)
+    training_scroll = _make_scrollable(tabview.tab("Training"))
 
     _section_header(training_scroll, "Mishear Training",
                     "Transcripts VERA didn't understand. Select one, type what you meant, and save.")
 
     # List frame
-    unmatched_list_frame = ctk.CTkFrame(training_scroll, corner_radius=CORNER_R)
-    unmatched_list_frame.pack(fill="x", padx=PAD_OUTER, pady=(4, 8))
+    unmatched_list_frame = ctk.CTkFrame(training_scroll, corner_radius=8)
+    unmatched_list_frame.pack(fill="x", padx=PAD_OUTER, pady=(2, 4))
 
     unmatched_listbox_var = tk.StringVar(value=[])
     unmatched_listbox = tk.Listbox(
@@ -647,10 +814,18 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
         listvariable=unmatched_listbox_var,
         height=8,
         selectmode="single",
-        font=("Segoe UI", 11),
+        font=("Segoe UI Semibold", 11),
         activestyle="none",
+        exportselection=False,
+        bg="#262626",
+        fg="white",
+        selectbackground="#2563eb",
+        selectforeground="white",
         relief="flat",
         borderwidth=0,
+        highlightthickness=1,
+        highlightbackground="#404040",
+        highlightcolor="#2563eb",
     )
     unmatched_listbox.pack(fill="both", expand=True, padx=8, pady=8)
 
@@ -674,7 +849,7 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
 
     # Correction row
     correction_frame = ctk.CTkFrame(training_scroll, fg_color="transparent")
-    correction_frame.pack(fill="x", padx=PAD_OUTER, pady=(0, 4))
+    correction_frame.pack(fill="x", padx=PAD_OUTER, pady=(0, 2))
 
     ctk.CTkLabel(correction_frame, text="Correct to:", font=FONT_BODY).pack(side="left", padx=(0, 8))
     correction_entry = ctk.CTkEntry(correction_frame, placeholder_text="what you actually said", width=260)
@@ -716,8 +891,10 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
     # =====================================================================
     status_frame = ctk.CTkFrame(root)
     status_frame.pack(fill="x", padx=10, pady=(4, 10))
+    status_frame.grid_columnconfigure(0, weight=1)
+    status_frame.grid_columnconfigure(1, weight=0)
     status_left = ctk.CTkFrame(status_frame, fg_color="transparent")
-    status_left.pack(fill="x", padx=12, pady=8)
+    status_left.grid(row=0, column=0, sticky="ew", padx=12, pady=8)
     ctk.CTkLabel(status_left, text="Status:",
                  font=("Segoe UI", 11, "bold")).pack(side="left")
 
@@ -744,6 +921,134 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
                  font=("Segoe UI", 11, "bold")).pack(side="left")
     ctk.CTkEntry(status_left, textvariable=transcript_var,
                  width=260).pack(side="left", padx=(8, 0))
+    save_button = ctk.CTkButton(
+        status_frame,
+        text="Unsaved changes",
+        command=_save,
+        width=150,
+        height=32,
+        corner_radius=999,
+        fg_color=("#d97706", "#d97706"),
+        hover_color=("#b45309", "#b45309"),
+        font=("Segoe UI", 11, "bold"),
+    )
+    notice_frame = ctk.CTkFrame(status_frame, corner_radius=8, fg_color=("#fdecea", "#4a1f1f"))
+    notice_content = ctk.CTkFrame(notice_frame, fg_color="transparent")
+    notice_content.pack(fill="x", padx=10, pady=8)
+    notice_label = ctk.CTkLabel(
+        notice_content,
+        text="",
+        anchor="w",
+        justify="left",
+        text_color=("#8a1c1c", "#ffb4b4"),
+        wraplength=500,
+        font=("Segoe UI", 11),
+    )
+    notice_label.pack(side="left", fill="x", expand=True)
+    notice_action_button = ctk.CTkButton(notice_content, text="Action", width=120, height=28)
+    notice_close_button = ctk.CTkButton(notice_content, text="Close", width=84, height=28)
+    update_frame = ctk.CTkFrame(status_frame, corner_radius=8, fg_color=("#fff4db", "#4a3a1f"))
+    update_content = ctk.CTkFrame(update_frame, fg_color="transparent")
+    update_content.pack(fill="x", padx=10, pady=8)
+    update_label = ctk.CTkLabel(
+        update_content,
+        text="",
+        anchor="w",
+        justify="left",
+        text_color=("#8a6116", "#ffd67d"),
+        wraplength=500,
+        font=("Segoe UI", 11),
+    )
+    update_label.pack(side="left", fill="x", expand=True)
+    update_action_button = ctk.CTkButton(update_content, text="Check Updates", width=120, height=28)
+    update_close_button = ctk.CTkButton(update_content, text="Close", width=84, height=28)
+
+    loading_overlay = ctk.CTkFrame(root, corner_radius=0, fg_color=("gray96", "gray12"))
+    loading_card = ctk.CTkFrame(loading_overlay, corner_radius=18, fg_color=("gray92", "gray18"))
+    loading_card.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.72, relheight=0.48)
+    loading_logo = _load_logo()
+    if loading_logo is not None:
+        loading_logo_label = ctk.CTkLabel(loading_card, image=loading_logo, text="")
+        loading_logo_label.pack(pady=(22, 4))
+    else:
+        loading_logo_label = None
+    ctk.CTkLabel(
+        loading_card,
+        text="VERA",
+        font=("Segoe UI", 24, "bold"),
+    ).pack(pady=(0, 6))
+    ctk.CTkLabel(
+        loading_card,
+        text="Loading your workspace...",
+        font=("Segoe UI", 12),
+        text_color=COLOR_HELP,
+    ).pack()
+    loading_progress = ctk.CTkProgressBar(loading_card, mode="indeterminate", width=240)
+    loading_progress.pack(pady=(18, 10))
+    loading_progress.start()
+    loading_overlay.place_forget()
+
+    record_backdrop = ctk.CTkFrame(
+        root,
+        corner_radius=0,
+        fg_color=("#f3f4f6", "#111827"),
+    )
+    record_overlay = ctk.CTkFrame(
+        record_backdrop,
+        corner_radius=14,
+        border_width=1,
+        border_color=("gray70", "gray30"),
+        fg_color=("gray95", "gray18"),
+    )
+    record_overlay.grid_columnconfigure(0, weight=1)
+    record_title_label = ctk.CTkLabel(
+        record_overlay,
+        text="",
+        anchor="w",
+        justify="left",
+        font=("Segoe UI", 16, "bold"),
+    )
+    record_title_label.grid(row=0, column=0, sticky="ew", padx=18, pady=(16, 6))
+    record_message_label = ctk.CTkLabel(
+        record_overlay,
+        text="",
+        anchor="w",
+        justify="left",
+        wraplength=340,
+        font=("Segoe UI", 12),
+    )
+    record_message_label.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 10))
+    record_status_label = ctk.CTkLabel(
+        record_overlay,
+        text="Listening for your input...",
+        anchor="w",
+        justify="left",
+        text_color=("gray40", "gray75"),
+        font=("Segoe UI", 11),
+    )
+    record_status_label.grid(row=2, column=0, sticky="ew", padx=18, pady=(0, 6))
+    record_hint_label = ctk.CTkLabel(
+        record_overlay,
+        text="Press Esc to cancel.",
+        anchor="w",
+        justify="left",
+        text_color=("gray50", "gray65"),
+        font=("Segoe UI", 11),
+    )
+    record_hint_label.grid(row=3, column=0, sticky="ew", padx=18, pady=(0, 16))
+    record_overlay.pack(expand=True)
+    record_backdrop.place_forget()
+    record_overlay.place_forget()
+
+    install_smooth_scrolling(
+        root,
+        home_scroll,
+        settings_scroll,
+        apps_scroll,
+        integ_scroll,
+        discord_scroll,
+        training_scroll,
+    )
 
     # =====================================================================
     # RETURN DICT  (identical keys to original)
@@ -757,4 +1062,20 @@ def build_ui(root, state: dict, callbacks: dict, constants: dict):
         "discord_servers_textbox": discord_servers_textbox,
         "keybinds_textbox": keybinds_textbox,
         "tabview": tabview,
+        "save_button": save_button,
+        "notice_frame": notice_frame,
+        "notice_label": notice_label,
+        "notice_action_button": notice_action_button,
+        "notice_close_button": notice_close_button,
+        "update_frame": update_frame,
+        "update_label": update_label,
+        "update_action_button": update_action_button,
+        "update_close_button": update_close_button,
+        "loading_overlay": loading_overlay,
+        "loading_progress": loading_progress,
+        "record_backdrop": record_backdrop,
+        "record_overlay": record_overlay,
+        "record_title_label": record_title_label,
+        "record_message_label": record_message_label,
+        "record_status_label": record_status_label,
     }

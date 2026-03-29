@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.90.0
+- UI overhaul — inline notifications replace popups, smooth scrolling, unsaved changes indicator, loading overlay, styled listboxes (thepyro-dev)
+- Inline key recording overlay — record hotkeys and hold keys directly inside the window instead of a separate dialog
+- Fixed hold-to-talk with Caps Lock — releasing the key no longer restarts recording due to synthetic keybd_event from caps lock state restore
+- New logo, tray icon, and app icon — refreshed visual design
+
 ## 0.89.0
 - Bug report now submits to Discord automatically — creates a private ticket with description, VERA version, and full log zip attached
 - Description and Discord username prompts added to bug report flow

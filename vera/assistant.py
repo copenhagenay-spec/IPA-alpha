@@ -13,6 +13,7 @@ import zipfile
 import shutil
 import tempfile
 import urllib.request
+import json
 import tkinter as tk
 from tkinter import messagebox
 
@@ -39,6 +40,29 @@ HOTKEY_CHOICES = [
 
 HOLD_CHOICES = ["caps_lock"]
 LANG_CHOICES = ["English", "Spanish"]
+UI_NOTIFY_INFO = None
+UI_NOTIFY_ERROR = None
+UI_CONFIRM = None
+
+
+def _notify_info(title: str, message: str) -> None:
+    if callable(UI_NOTIFY_INFO):
+        UI_NOTIFY_INFO(title, message)
+    else:
+        messagebox.showinfo(title, message)
+
+
+def _notify_error(title: str, message: str) -> None:
+    if callable(UI_NOTIFY_ERROR):
+        UI_NOTIFY_ERROR(title, message)
+    else:
+        messagebox.showerror(title, message)
+
+
+def _confirm_dialog(title: str, message: str) -> bool:
+    if callable(UI_CONFIRM):
+        return bool(UI_CONFIRM(title, message))
+    return bool(messagebox.askyesno(title, message))
 
 
 class BackgroundListener:
@@ -57,6 +81,13 @@ class BackgroundListener:
         self.listener = None
         self.stop_event.clear()
         self.recording_flag.clear()
+
+    def _play_ptt_beep(self, freq: int) -> None:
+        threading.Thread(
+            target=_ptt_beep,
+            args=(freq, 60, load_config().get("ptt_beep_volume", 80)),
+            daemon=True,
+        ).start()
 
     def start_toggle(self, toggle_key: str, model_path: str, confirm_fn, on_text=None, restart_fn=None, on_record_start=None, on_record_end=None):
         from pynput import keyboard  # type: ignore
@@ -81,15 +112,12 @@ class BackgroundListener:
                 if not self.recording_flag.is_set():
                     # First press — start recording
                     self.recording_flag.set()
-                    def _start():
-                        threading.Thread(target=_record, daemon=True).start()
-                        time.sleep(0.5)
-                        _ptt_beep(660, 60, load_config().get("ptt_beep_volume", 80))
-                    threading.Thread(target=_start, daemon=True).start()
+                    self.stop_event.clear()
+                    threading.Thread(target=_record, daemon=True).start()
+                    self._play_ptt_beep(660)
                 else:
                     # Second press — stop recording
-                    _ptt_beep(440, 60, load_config().get("ptt_beep_volume", 80))
-                    time.sleep(0.1)
+                    self._play_ptt_beep(440)
                     self.stop_event.set()
 
         self.stop()
@@ -125,18 +153,13 @@ class BackgroundListener:
                 if pressed and not self.recording_flag.is_set():
                     _mouse_released["done"] = False
                     self.recording_flag.set()
-                    def _start():
-                        threading.Thread(target=_record, daemon=True).start()
-                        time.sleep(0.5)
-                        _ptt_beep(660, 60, load_config().get("ptt_beep_volume", 80))
-                    threading.Thread(target=_start, daemon=True).start()
+                    self.stop_event.clear()
+                    threading.Thread(target=_record, daemon=True).start()
+                    self._play_ptt_beep(660)
                 elif not pressed and self.recording_flag.is_set() and not _mouse_released["done"]:
                     _mouse_released["done"] = True
-                    def _stop():
-                        _ptt_beep(440, 60, load_config().get("ptt_beep_volume", 80))
-                        time.sleep(0.65)
-                        self.stop_event.set()
-                    threading.Thread(target=_stop, daemon=True).start()
+                    self._play_ptt_beep(440)
+                    self.stop_event.set()
 
             self.stop()
             self.mode = "hold"
@@ -151,9 +174,10 @@ class BackgroundListener:
             # Caps Lock suppression — local only, never pushed to public build
             _caps_desired = {"state": None}
             _kb_released = {"done": False}
+            _restoring_caps = {"active": False}
 
             def _on_press(key):
-                if key == key_obj and not self.recording_flag.is_set():
+                if key == key_obj and not self.recording_flag.is_set() and not _restoring_caps["active"]:
                     if key == keyboard.Key.caps_lock:
                         try:
                             import ctypes
@@ -163,20 +187,15 @@ class BackgroundListener:
                             pass
                     _kb_released["done"] = False
                     self.recording_flag.set()
-                    def _start():
-                        threading.Thread(target=_record, daemon=True).start()
-                        time.sleep(0.5)
-                        _ptt_beep(660, 60, load_config().get("ptt_beep_volume", 80))
-                    threading.Thread(target=_start, daemon=True).start()
+                    self.stop_event.clear()
+                    threading.Thread(target=_record, daemon=True).start()
+                    self._play_ptt_beep(660)
 
             def _on_release(key):
-                if key == key_obj and self.recording_flag.is_set() and not _kb_released["done"]:
+                if key == key_obj and self.recording_flag.is_set() and not _kb_released["done"] and not _restoring_caps["active"]:
                     _kb_released["done"] = True
-                    def _stop():
-                        _ptt_beep(440, 60, load_config().get("ptt_beep_volume", 80))
-                        time.sleep(0.65)
-                        self.stop_event.set()
-                    threading.Thread(target=_stop, daemon=True).start()
+                    self._play_ptt_beep(440)
+                    self.stop_event.set()
                     if key == keyboard.Key.caps_lock and _caps_desired["state"] is not None:
                         desired = _caps_desired["state"]
                         def _restore():
@@ -185,8 +204,11 @@ class BackgroundListener:
                             _time.sleep(0.15)
                             current = _ctypes.windll.user32.GetKeyState(0x14) & 0x0001
                             if current != desired:
+                                _restoring_caps["active"] = True
                                 _ctypes.windll.user32.keybd_event(0x14, 0, 0, 0)
                                 _ctypes.windll.user32.keybd_event(0x14, 0, 2, 0)
+                                _time.sleep(0.1)
+                                _restoring_caps["active"] = False
                         threading.Thread(target=_restore, daemon=True).start()
                         _caps_desired["state"] = None
 
@@ -211,16 +233,40 @@ def _resolve_hold_key(key_name: str, keyboard):
 
 
 def _is_mouse_button(key_name: str) -> bool:
-    return str(key_name).strip().lower() in ("x1", "x2")
+    return _normalize_record_key_name(key_name) in ("x1", "x2")
 
 
 def _resolve_mouse_button(key_name: str, mouse):
-    raw = str(key_name).strip().lower()
+    raw = _normalize_record_key_name(key_name)
     if raw == "x1":
         return mouse.Button.x1
     if raw == "x2":
         return mouse.Button.x2
     return None
+
+
+def _normalize_record_key_name(key_name: str) -> str:
+    raw = str(key_name).strip().lower()
+    aliases = {
+        "mouse back": "x1",
+        "mouse back (x1)": "x1",
+        "back mouse button": "x1",
+        "mouse forward": "x2",
+        "mouse fwd": "x2",
+        "mouse fwd (x2)": "x2",
+        "mouse forward (x2)": "x2",
+        "forward mouse button": "x2",
+    }
+    return aliases.get(raw, raw)
+
+
+def _format_record_key_name(key_name: str) -> str:
+    raw = _normalize_record_key_name(key_name)
+    if raw == "x1":
+        return "Mouse Back"
+    if raw == "x2":
+        return "Mouse Forward"
+    return str(key_name).strip()
 
 
 def _run_mic(seconds: int, model_path: str, confirm_fn=None, allow_prompt: bool = True, restart_fn=None):
@@ -231,9 +277,9 @@ def _run_mic(seconds: int, model_path: str, confirm_fn=None, allow_prompt: bool 
                 log_unmatched(text)
         return text
     except MissingDependencyError as exc:
-        messagebox.showerror("Missing Dependency", str(exc))
+        _notify_error("Missing Dependency", str(exc))
     except Exception as exc:
-        messagebox.showerror("Error", str(exc))
+        _notify_error("Error", str(exc))
     return ""
 
 
@@ -245,9 +291,9 @@ def _run_hold(stop_event: threading.Event, hold_key: str, model_path: str, confi
                 log_unmatched(text)
         return text
     except MissingDependencyError as exc:
-        messagebox.showerror("Missing Dependency", str(exc))
+        _notify_error("Missing Dependency", str(exc))
     except Exception as exc:
-        messagebox.showerror("Error", str(exc))
+        _notify_error("Error", str(exc))
     return ""
 
 
@@ -302,6 +348,8 @@ def main() -> None:
         except Exception:
             pass
 
+    _test_update_alert = "--test-update-alert" in sys.argv
+
     cfg = load_config()
     if cfg and "wizard_done" not in cfg:
         cfg["wizard_done"] = True
@@ -310,20 +358,6 @@ def main() -> None:
     if cfg:
         if discover_apps(cfg):
             save_config(cfg)
-
-    def _startup_update_check():
-        try:
-            local = open(os.path.join(os.path.dirname(__file__), "VERSION")).read().strip()
-            url = "https://raw.githubusercontent.com/copenhagenay-spec/Vera-beta/main/vera/VERSION"
-            with urllib.request.urlopen(url, timeout=8) as r:
-                remote = r.read().decode().strip()
-            if remote != local:
-                import tkinter.messagebox as _mb
-                _mb.showinfo("Update Available", f"A new version of VERA is available ({remote}).\n\nOpen VERA and click Check Updates to install.")
-        except Exception:
-            pass
-
-    threading.Thread(target=_startup_update_check, daemon=True).start()
 
     try:
         import ctypes  # type: ignore
@@ -359,8 +393,10 @@ def main() -> None:
     mode = tk.StringVar(value=_saved_mode)
     language = tk.StringVar(value=cfg.get("language", "English"))
     seconds = tk.StringVar(value=str(cfg.get("seconds", 5)))
-    hotkey = tk.StringVar(value=cfg.get("hotkey", HOTKEY_CHOICES[0]))
-    holdkey = tk.StringVar(value=cfg.get("hold_key", HOLD_CHOICES[0]))
+    hotkey = tk.StringVar(value=_normalize_record_key_name(cfg.get("hotkey", HOTKEY_CHOICES[0])))
+    holdkey = tk.StringVar(value=_normalize_record_key_name(cfg.get("hold_key", HOLD_CHOICES[0])))
+    hotkey_display = tk.StringVar(value=_format_record_key_name(hotkey.get()))
+    holdkey_display = tk.StringVar(value=_format_record_key_name(holdkey.get()))
     search_engine = tk.StringVar(
         value=cfg.get("search_engine", "https://www.google.com/search?q={query}")
     )
@@ -371,7 +407,7 @@ def main() -> None:
     _all_devices = _sd.query_devices()
     tts_device_choices = ["Default"] + [d["name"] for d in _all_devices if d["max_output_channels"] > 0]
     tts_output_device = tk.StringVar(value=cfg.get("tts_output_device", "") or "Default")
-    bug_report_secret_var = tk.StringVar(value=cfg.get("bug_report_secret", ""))
+    bug_report_secret_var = tk.StringVar(value=cfg.get("bug_report_secret", "") or "Z3JlZW5pc2RheQ==")
     confirm_actions = tk.BooleanVar(value=bool(cfg.get("confirm_actions", False)))
     spotify_media = tk.BooleanVar(value=bool(cfg.get("spotify_media", False)))
     spotify_requires = tk.BooleanVar(value=bool(cfg.get("spotify_requires_keyword", False)))
@@ -459,6 +495,39 @@ def main() -> None:
     keybind_phrase_var = tk.StringVar()
     keybind_key_var = tk.StringVar()
     keybind_count_var = tk.StringVar(value="1")
+
+    def _bind_record_key_display(raw_var: tk.StringVar, display_var: tk.StringVar) -> None:
+        _syncing = {"raw": False, "display": False}
+
+        def _sync_from_raw(*_args):
+            if _syncing["display"]:
+                return
+            normalized = _normalize_record_key_name(raw_var.get())
+            pretty = _format_record_key_name(normalized)
+            if raw_var.get() != normalized:
+                _syncing["raw"] = True
+                raw_var.set(normalized)
+                _syncing["raw"] = False
+            if display_var.get() != pretty:
+                _syncing["display"] = True
+                display_var.set(pretty)
+                _syncing["display"] = False
+
+        def _sync_from_display(*_args):
+            if _syncing["raw"]:
+                return
+            normalized = _normalize_record_key_name(display_var.get())
+            if raw_var.get() != normalized:
+                _syncing["raw"] = True
+                raw_var.set(normalized)
+                _syncing["raw"] = False
+
+        raw_var.trace_add("write", _sync_from_raw)
+        display_var.trace_add("write", _sync_from_display)
+        _sync_from_raw()
+
+    _bind_record_key_display(hotkey, hotkey_display)
+    _bind_record_key_display(holdkey, holdkey_display)
     apps_textbox = None
     aliases_textbox = None
     actions_textbox = None
@@ -468,6 +537,31 @@ def main() -> None:
     listener = BackgroundListener()
     tray_icon = {"icon": None}
     tray_ready = {"ok": False}
+    _model_preload_started = {"done": False}
+    _saved_config_signature = [""]
+    _runtime_mode = {"value": "idle"}
+    _notice_after_id = {"id": None}
+    _notice_action = {"callback": None}
+    _update_action = {"callback": None}
+    _dismissed_update_version = {"value": str(cfg.get("dismissed_update_version", "")).strip()}
+    save_button = None
+    notice_frame = None
+    notice_label = None
+    notice_action_button = None
+    notice_close_button = None
+    update_frame = None
+    update_label = None
+    update_action_button = None
+    update_close_button = None
+    loading_overlay = None
+    loading_progress = None
+    record_backdrop = None
+    record_overlay = None
+    record_title_label = None
+    record_message_label = None
+    record_status_label = None
+    _record_overlay_session = {"id": 0}
+    _active_recorders = []
 
     # --- Helper functions (logic unchanged) ---
 
@@ -509,20 +603,24 @@ def main() -> None:
             "discord_server_id": discord_server_id_var.get().strip(),
             "gemini_api_key": gemini_api_key_var.get().strip(),
             "keybinds": [k for k in keybinds if k.get("phrase") and k.get("key")],
+            "dismissed_update_version": _dismissed_update_version["value"],
             "bug_report_secret": bug_report_secret_var.get(),
         }
         if wizard_done is not None:
             data["wizard_done"] = bool(wizard_done)
         return data
 
+    def _config_signature(data: dict | None = None) -> str:
+        payload = data if data is not None else _build_config()
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
     def _confirm_prompt(prompt: str) -> bool:
         if not confirm_actions.get():
             return True
-        return messagebox.askyesno("Confirm", prompt)
+        return _confirm_dialog("Confirm", prompt)
 
     def _do_restart():
         try:
-            save_config(_build_config())
             listener.stop()
             if tray_icon["icon"] is not None:
                 tray_icon["icon"].stop()
@@ -618,16 +716,16 @@ def main() -> None:
             latest = _fetch_latest_version()
         except Exception as exc:
             _log_to_file(f"UPDATE_CHECK_FAILED: {exc}")
-            messagebox.showerror("Update Failed", f"Could not check for updates.\n\n{exc}")
+            _notify_error("Update Failed", f"Could not check for updates.\n\n{exc}")
             return
         if not latest:
-            messagebox.showinfo("Update", "Could not check for updates (no connection).")
+            _notify_info("Update", "Could not check for updates (no connection).")
             return
         if _parse_version(latest) <= _parse_version(current):
-            messagebox.showinfo("Update", f"You're up to date (v{current}).")
+            _notify_info("Update", f"You're up to date (v{current}).")
             return
 
-        if not messagebox.askyesno("Update Available", f"Update to v{latest}?"):
+        if not _confirm_dialog("Update Available", f"Update to v{latest}?"):
             return
 
         try:
@@ -655,32 +753,35 @@ def main() -> None:
                 except Exception:
                     pass
 
-            messagebox.showinfo("Update", "Update installed. Restarting VERA...")
+            _notify_info("Update", "Update installed. Restarting VERA...")
             _release_mutex()
             script_path = os.path.abspath(__file__)
             subprocess.Popen([sys.executable, script_path])
             root.destroy()
         except Exception as exc:
-            messagebox.showerror("Update Failed", str(exc))
+            _notify_error("Update Failed", str(exc))
+
+    def _startup_update_check():
+        try:
+            local = _read_local_version()
+            latest = _fetch_latest_version()
+            if latest and _parse_version(latest) > _parse_version(local):
+                root.after(0, lambda v=latest: _show_update_notice(v))
+        except Exception:
+            pass
 
     def _record_hotkey(target_var: tk.StringVar) -> None:
         try:
             from pynput import keyboard  # type: ignore
         except Exception:
-            messagebox.showerror("Missing Dependency", "pynput is required to record hotkeys.")
+            _notify_error("Missing Dependency", "pynput is required to record hotkeys.")
             return
 
-        dialog = tk.Toplevel(root)
-        dialog.title("Record Hotkey")
-        dialog.geometry("320x120")
-        dialog.resizable(False, False)
-        dialog.transient(root)
-        dialog.grab_set()
-
-        info = tk.Label(dialog, text="Press a key combo (Esc to cancel)")
-        info.pack(padx=10, pady=(12, 6))
-        status = tk.StringVar(value="Waiting...")
-        tk.Label(dialog, textvariable=status).pack(padx=10, pady=(0, 10))
+        dialog, status = _create_record_popup(
+            "Record Toggle Key",
+            "Press the key combination you want VERA to use for toggle-to-talk.",
+            size="400x170",
+        )
 
         modifier_keys = {
             keyboard.Key.ctrl,
@@ -769,6 +870,7 @@ def main() -> None:
                 return False
 
         listener = keyboard.Listener(on_press=_on_press, on_release=_on_release)
+        _active_recorders.append(listener)
         listener.start()
 
     def _record_hold_key(target_var: tk.StringVar) -> None:
@@ -776,20 +878,14 @@ def main() -> None:
             from pynput import keyboard  # type: ignore
             from pynput import mouse as pynput_mouse  # type: ignore
         except Exception:
-            messagebox.showerror("Missing Dependency", "pynput is required to record keys.")
+            _notify_error("Missing Dependency", "pynput is required to record keys.")
             return
 
-        dialog = tk.Toplevel(root)
-        dialog.title("Record Hold Key")
-        dialog.geometry("340x130")
-        dialog.resizable(False, False)
-        dialog.transient(root)
-        dialog.grab_set()
-
-        info = tk.Label(dialog, text="Press a key or side mouse button (Esc to cancel)")
-        info.pack(padx=10, pady=(12, 6))
-        status = tk.StringVar(value="Waiting...")
-        tk.Label(dialog, textvariable=status).pack(padx=10, pady=(0, 10))
+        dialog, status = _create_record_popup(
+            "Record Hold Key",
+            "Press the key or side mouse button you want VERA to use for hold-to-talk.",
+            size="410x170",
+        )
 
         modifier_keys = {
             keyboard.Key.ctrl,
@@ -857,8 +953,10 @@ def main() -> None:
                 return False
 
         active["kb"] = keyboard.Listener(on_press=_on_press)
+        _active_recorders.append(active["kb"])
         active["kb"].start()
         active["ms"] = pynput_mouse.Listener(on_click=_on_click)
+        _active_recorders.append(active["ms"])
         active["ms"].start()
 
     def _load_logo():
@@ -892,7 +990,269 @@ def main() -> None:
     def _save():
         data = _build_config()
         save_config(data)
-        messagebox.showinfo("Saved", "Configuration saved.")
+        _saved_config_signature[0] = _config_signature(data)
+        ctk.set_appearance_mode("dark" if theme_var.get() else "light")
+        _apply_runtime_config()
+        _refresh_save_prompt()
+        _notify_info("Saved", "Configuration saved.")
+
+    def _prime_speech_model() -> None:
+        if _model_preload_started["done"]:
+            return
+        _model_preload_started["done"] = True
+
+        def _run():
+            try:
+                import app as _app_module
+                _app_module._get_whisper_model()
+            except Exception:
+                pass
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _background_active() -> bool:
+        wake_alive = _wake_thread[0] is not None and _wake_thread[0].is_alive()
+        return bool(listener.listener is not None or wake_alive or _runtime_mode["value"] != "idle")
+
+    def _apply_runtime_config() -> None:
+        if not _background_active():
+            return
+        _stop_background()
+        root.after(120, _start_background)
+
+    def _hide_inline_notice() -> None:
+        if notice_frame is None:
+            return
+        if _notice_after_id["id"] is not None:
+            try:
+                root.after_cancel(_notice_after_id["id"])
+            except Exception:
+                pass
+            _notice_after_id["id"] = None
+        if str(notice_frame.winfo_manager()) == "grid":
+            notice_frame.grid_remove()
+        if notice_action_button is not None and str(notice_action_button.winfo_manager()) == "pack":
+            notice_action_button.pack_forget()
+        if notice_close_button is not None and str(notice_close_button.winfo_manager()) == "pack":
+            notice_close_button.pack_forget()
+        _notice_action["callback"] = None
+
+    def _run_notice_action() -> None:
+        callback = _notice_action.get("callback")
+        if callable(callback):
+            callback()
+
+    def _show_inline_notice(
+        message: str,
+        tone: str = "error",
+        duration_ms: int = 7000,
+        action_text: str | None = None,
+        action_callback=None,
+        closable: bool = False,
+    ) -> None:
+        if notice_frame is None or notice_label is None:
+            return
+        colors = {
+            "error": (("#fdecea", "#4a1f1f"), ("#8a1c1c", "#ffb4b4")),
+            "info": (("#e8f1fd", "#1f304a"), ("#1f4f8a", "#b7d4ff")),
+            "update": (("#fff4db", "#4a3a1f"), ("#8a6116", "#ffd67d")),
+        }
+        frame_color, text_color = colors.get(tone, colors["error"])
+        notice_frame.configure(fg_color=frame_color)
+        notice_label.configure(text=message, text_color=text_color)
+        if notice_action_button is not None:
+            if action_text and callable(action_callback):
+                _notice_action["callback"] = action_callback
+                notice_action_button.configure(text=action_text, command=_run_notice_action)
+                if str(notice_action_button.winfo_manager()) != "pack":
+                    notice_action_button.pack(side="right", padx=(8, 0))
+            elif str(notice_action_button.winfo_manager()) == "pack":
+                notice_action_button.pack_forget()
+        if notice_close_button is not None:
+            if closable:
+                notice_close_button.configure(command=_hide_inline_notice)
+                if str(notice_close_button.winfo_manager()) != "pack":
+                    notice_close_button.pack(side="right", padx=(8, 0))
+            elif str(notice_close_button.winfo_manager()) == "pack":
+                notice_close_button.pack_forget()
+        notice_frame.grid(row=1, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))
+        if _notice_after_id["id"] is not None:
+            try:
+                root.after_cancel(_notice_after_id["id"])
+            except Exception:
+                pass
+        _notice_after_id["id"] = root.after(duration_ms, _hide_inline_notice) if duration_ms and duration_ms > 0 else None
+
+    def _hide_update_notice() -> None:
+        if update_frame is None:
+            return
+        if str(update_frame.winfo_manager()) == "grid":
+            update_frame.grid_remove()
+        if update_action_button is not None and str(update_action_button.winfo_manager()) == "pack":
+            update_action_button.pack_forget()
+        if update_close_button is not None and str(update_close_button.winfo_manager()) == "pack":
+            update_close_button.pack_forget()
+        _update_action["callback"] = None
+
+    def _dismiss_update_notice(version: str | None = None) -> None:
+        if version and version != "TEST":
+            _dismissed_update_version["value"] = version
+            save_config(_build_config())
+            _saved_config_signature[0] = _config_signature()
+            _refresh_save_prompt()
+        _hide_update_notice()
+
+    def _run_update_action() -> None:
+        callback = _update_action.get("callback")
+        if callable(callback):
+            callback()
+
+    def _show_ui_info(title: str, message: str) -> None:
+        prefix = f"{title}: " if title and title.lower() != "info" else ""
+        _show_inline_notice(prefix + message, tone="info", duration_ms=5000)
+
+    def _show_ui_error(title: str, message: str) -> None:
+        prefix = f"{title}: " if title else ""
+        _show_inline_notice(prefix + message, tone="error", duration_ms=7000, closable=True)
+
+    def _show_update_notice(version: str, test: bool = False) -> None:
+        if not test and _dismissed_update_version["value"] == version:
+            return
+        if update_frame is None or update_label is None:
+            return
+        prefix = "Test update available." if test else f"New update available: v{version}."
+        update_label.configure(text=f"{prefix} Check here to update.")
+        if update_action_button is not None:
+            _update_action["callback"] = _check_for_updates
+            update_action_button.configure(text="Check Updates", command=_run_update_action)
+            if str(update_action_button.winfo_manager()) != "pack":
+                update_action_button.pack(side="right", padx=(8, 0))
+        if update_close_button is not None:
+            update_close_button.configure(command=lambda v=version: _dismiss_update_notice(v))
+            if str(update_close_button.winfo_manager()) != "pack":
+                update_close_button.pack(side="right", padx=(8, 0))
+        update_frame.grid(row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))
+
+    def _stop_active_recorders() -> None:
+        while _active_recorders:
+            current = _active_recorders.pop()
+            try:
+                current.stop()
+            except Exception:
+                pass
+
+    def _create_record_popup(title: str, instruction: str, size: str = "380x150"):
+        class _InlineRecordDialog:
+            def __init__(self, session_id: int):
+                self.session_id = session_id
+                self._closed = False
+
+            def after(self, delay_ms: int, callback):
+                def _run():
+                    if self._closed or self.session_id != _record_overlay_session["id"]:
+                        return
+                    callback()
+
+                return root.after(delay_ms, _run)
+
+            def destroy(self):
+                if self._closed:
+                    return
+                self._closed = True
+                if self.session_id != _record_overlay_session["id"]:
+                    return
+                if record_status_label is not None:
+                    try:
+                        record_status_label.configure(textvariable=None, text="Listening for your input...")
+                    except Exception:
+                        pass
+                _stop_active_recorders()
+                if record_backdrop is not None and str(record_backdrop.winfo_manager()) == "place":
+                    try:
+                        record_backdrop.place_forget()
+                    except Exception:
+                        pass
+
+        _stop_active_recorders()
+
+        if record_backdrop is None or record_overlay is None or record_title_label is None or record_message_label is None or record_status_label is None:
+            status = tk.StringVar(value="Listening for your input...")
+            return _InlineRecordDialog(-1), status
+
+        _record_overlay_session["id"] += 1
+        session_id = _record_overlay_session["id"]
+        status = tk.StringVar(value="Listening for your input...")
+
+        record_title_label.configure(text=title)
+        record_message_label.configure(text=instruction)
+        record_status_label.configure(textvariable=status)
+
+        root.update_idletasks()
+        overlay_width = max(360, min(460, root.winfo_width() - 48))
+        record_overlay.configure(width=overlay_width)
+        record_backdrop.place(x=0, y=0, relwidth=1, relheight=1)
+        record_backdrop.lift()
+        root.focus_force()
+        return _InlineRecordDialog(session_id), status
+
+    def _ask_ui_confirm(title: str, message: str) -> bool:
+        result = {"value": False}
+        dialog = ctk.CTkToplevel(root)
+        dialog.title(title)
+        dialog.geometry("420x210")
+        dialog.resizable(False, False)
+        dialog.transient(root)
+        dialog.grab_set()
+        frame = ctk.CTkFrame(dialog, corner_radius=12)
+        frame.pack(fill="both", expand=True, padx=14, pady=14)
+        ctk.CTkLabel(frame, text=title, font=("Segoe UI", 16, "bold")).pack(
+            anchor="w", padx=16, pady=(16, 8)
+        )
+        ctk.CTkLabel(
+            frame,
+            text=message,
+            wraplength=360,
+            justify="left",
+            font=("Segoe UI", 12),
+        ).pack(anchor="w", padx=16, pady=(0, 16))
+
+        btn_row = ctk.CTkFrame(frame, fg_color="transparent")
+        btn_row.pack(fill="x", padx=16, pady=(0, 16))
+
+        def _finish(value: bool) -> None:
+            result["value"] = value
+            dialog.destroy()
+
+        ctk.CTkButton(btn_row, text="Cancel", command=lambda: _finish(False), width=100).pack(side="right")
+        ctk.CTkButton(btn_row, text="Confirm", command=lambda: _finish(True), width=100).pack(side="right", padx=(0, 8))
+        dialog.wait_window()
+        return result["value"]
+
+    def _on_mode_change() -> None:
+        if _background_active():
+            _stop_background()
+            root.after(80, _start_background)
+        else:
+            _runtime_mode["value"] = "idle"
+            status_var.set("Idle")
+        _refresh_save_prompt()
+
+    def _refresh_save_prompt(*_args) -> None:
+        if save_button is None:
+            return
+        is_dirty = _config_signature() != _saved_config_signature[0]
+        manager = str(save_button.winfo_manager())
+        if is_dirty:
+            if manager != "grid":
+                save_button.grid(row=0, column=1, sticky="e", padx=(0, 12), pady=8)
+        else:
+            if manager == "grid":
+                save_button.grid_remove()
+
+    global UI_NOTIFY_INFO, UI_NOTIFY_ERROR, UI_CONFIRM
+    UI_NOTIFY_INFO = _show_ui_info
+    UI_NOTIFY_ERROR = _show_ui_error
+    UI_CONFIRM = _ask_ui_confirm
 
     # --- Actions list helpers ---
     def _refresh_actions():
@@ -908,12 +1268,13 @@ def main() -> None:
         phrase = phrase_var.get().strip()
         command = command_var.get().strip()
         if not phrase or not command:
-            messagebox.showerror("Invalid", "Phrase and command are required.")
+            _notify_error("Invalid", "Phrase and command are required.")
             return
         actions.append({"phrase": phrase, "command": command})
         phrase_var.set("")
         command_var.set("")
         _refresh_actions()
+        _refresh_save_prompt()
 
     def _remove_action():
         if not actions or actions_textbox is None:
@@ -923,6 +1284,7 @@ def main() -> None:
         if 0 <= idx < len(actions):
             actions.pop(idx)
         _refresh_actions()
+        _refresh_save_prompt()
 
     # --- Apps list helpers ---
     def _refresh_apps():
@@ -949,45 +1311,49 @@ def main() -> None:
         alias = alias_var.get().strip().lower()
         target = alias_target_var.get().strip().lower()
         if not alias or not target:
-            messagebox.showerror("Invalid", "Alias and target app are required.")
+            _notify_error("Invalid", "Alias and target app are required.")
             return
         aliases.append({"alias": alias, "target": target})
         alias_var.set("")
         alias_target_var.set("")
         _refresh_aliases()
+        _refresh_save_prompt()
 
     def _remove_alias():
         if not aliases:
             return
         aliases.pop(-1)
         _refresh_aliases()
+        _refresh_save_prompt()
 
     def _add_app():
         name = app_name_var.get().strip().lower()
         command = app_cmd_var.get().strip()
         if not name or not command:
-            messagebox.showerror("Invalid", "App name and command are required.")
+            _notify_error("Invalid", "App name and command are required.")
             return
         apps.append({"name": name, "command": command})
         app_name_var.set("")
         app_cmd_var.set("")
         _refresh_apps()
+        _refresh_save_prompt()
 
     def _test_app():
         command = app_cmd_var.get().strip()
         if not command:
-            messagebox.showerror("Invalid", "App command is required to test.")
+            _notify_error("Invalid", "App command is required to test.")
             return
         try:
             subprocess.Popen(command, shell=True)
         except Exception as exc:
-            messagebox.showerror("Test Failed", str(exc))
+            _notify_error("Test Failed", str(exc))
 
     def _remove_app():
         if not apps:
             return
         apps.pop(-1)
         _refresh_apps()
+        _refresh_save_prompt()
 
     # --- Discord servers helpers ---
     def _refresh_discord_servers():
@@ -1001,12 +1367,13 @@ def main() -> None:
         nickname = discord_srv_nickname_var.get().strip().lower()
         server_id = discord_srv_id_var.get().strip()
         if not nickname or not server_id:
-            messagebox.showerror("Invalid", "Nickname and Server ID are required.")
+            _notify_error("Invalid", "Nickname and Server ID are required.")
             return
         discord_servers.append({"nickname": nickname, "server_id": server_id})
         discord_srv_nickname_var.set("")
         discord_srv_id_var.set("")
         _refresh_discord_servers()
+        _refresh_save_prompt()
 
     def _remove_discord_server():
         if discord_servers_textbox is None or not discord_servers:
@@ -1015,6 +1382,7 @@ def main() -> None:
         idx = sel[0] if sel else len(discord_servers) - 1
         discord_servers.pop(idx)
         _refresh_discord_servers()
+        _refresh_save_prompt()
 
     # --- Discord channels helpers ---
     def _refresh_discord_channels():
@@ -1031,13 +1399,14 @@ def main() -> None:
         url = discord_ch_url_var.get().strip()
         server = discord_ch_server_var.get().strip().lower()
         if not name or not url:
-            messagebox.showerror("Invalid", "Channel name and webhook URL are required.")
+            _notify_error("Invalid", "Channel name and webhook URL are required.")
             return
         discord_channels.append({"name": name, "url": url, "server": server})
         discord_ch_name_var.set("")
         discord_ch_url_var.set("")
         discord_ch_server_var.set("")
         _refresh_discord_channels()
+        _refresh_save_prompt()
 
     def _remove_discord_channel():
         if discord_channels_textbox is None or not discord_channels:
@@ -1046,6 +1415,7 @@ def main() -> None:
         idx = sel[0] if sel else len(discord_channels) - 1
         discord_channels.pop(idx)
         _refresh_discord_channels()
+        _refresh_save_prompt()
 
     # --- Keybinds helpers ---
     def _refresh_keybinds():
@@ -1063,19 +1433,14 @@ def main() -> None:
             from pynput import keyboard as _kb  # type: ignore
             from pynput import mouse as _ms  # type: ignore
         except Exception:
-            messagebox.showerror("Missing Dependency", "pynput is required to record keys.")
+            _notify_error("Missing Dependency", "pynput is required to record keys.")
             return
 
-        dialog = tk.Toplevel(root)
-        dialog.title("Record Key Step")
-        dialog.geometry("360x130")
-        dialog.resizable(False, False)
-        dialog.transient(root)
-        dialog.grab_set()
-
-        tk.Label(dialog, text="Press a key, combo (hold mods first), or side mouse button").pack(padx=10, pady=(12, 6))
-        status = tk.StringVar(value="Waiting...")
-        tk.Label(dialog, textvariable=status).pack(padx=10, pady=(0, 10))
+        dialog, status = _create_record_popup(
+            "Record Key Step",
+            "Press a key, combo, or side mouse button to add the next step to this key bind.",
+            size="420x170",
+        )
 
         modifier_keys = {_kb.Key.ctrl, _kb.Key.ctrl_l, _kb.Key.ctrl_r,
                          _kb.Key.alt, _kb.Key.alt_l, _kb.Key.alt_r,
@@ -1154,8 +1519,10 @@ def main() -> None:
                 return False
 
         active["kb"] = _kb.Listener(on_press=_on_press, on_release=_on_release)
+        _active_recorders.append(active["kb"])
         active["kb"].start()
         active["ms"] = _ms.Listener(on_click=_on_click)
+        _active_recorders.append(active["ms"])
         active["ms"].start()
 
     def _add_keybind():
@@ -1166,13 +1533,14 @@ def main() -> None:
         except Exception:
             count = 1
         if not phrase or not key:
-            messagebox.showerror("Invalid", "Phrase and key are required.")
+            _notify_error("Invalid", "Phrase and key are required.")
             return
         keybinds.append({"phrase": phrase, "key": key, "count": count})
         keybind_phrase_var.set("")
         keybind_key_var.set("")
         keybind_count_var.set("1")
         _refresh_keybinds()
+        _refresh_save_prompt()
 
     def _remove_keybind():
         if not keybinds or keybinds_textbox is None:
@@ -1182,15 +1550,16 @@ def main() -> None:
         if 0 <= idx < len(keybinds):
             keybinds.pop(idx)
         _refresh_keybinds()
+        _refresh_save_prompt()
 
     def _import_steam():
         try:
             found = find_steam_apps()
         except Exception as exc:
-            messagebox.showerror("Steam Import Error", str(exc))
+            _notify_error("Steam Import Error", str(exc))
             return
         if not found:
-            messagebox.showinfo("Steam Import", "No Steam apps found.")
+            _notify_info("Steam Import", "No Steam apps found.")
             return
         existing = {a.get("name") for a in apps}
         added = 0
@@ -1206,7 +1575,8 @@ def main() -> None:
             existing.add(name)
             added += 1
         _refresh_apps()
-        messagebox.showinfo("Steam Import", f"Added {added} apps.")
+        _refresh_save_prompt()
+        _notify_info("Steam Import", f"Added {added} apps.")
 
     def _run_now():
         try:
@@ -1214,21 +1584,23 @@ def main() -> None:
         except Exception:
             secs = 5
         if mode.get() == "hold":
-            messagebox.showinfo("Hold Mode", "Hold mode only runs in the background.")
+            _notify_info("Hold Mode", "Hold mode only runs in the background.")
         elif mode.get() == "toggle":
-            messagebox.showinfo("Toggle Mode", "Toggle mode only runs in the background.")
+            _notify_info("Toggle Mode", "Toggle mode only runs in the background.")
         elif mode.get() == "wake":
-            messagebox.showinfo("Wake Word Mode", "Wake word mode only runs in the background.")
+            _notify_info("Wake Word Mode", "Wake word mode only runs in the background.")
         else:
-            messagebox.showinfo("Info", "Start Background to begin listening.")
+            _notify_info("Info", "Start Background to begin listening.")
 
     def _start_background():
         try:
             secs = int(seconds.get())
         except Exception:
             secs = 5
+        _prime_speech_model()
         try:
             if mode.get() == "hold":
+                _runtime_mode["value"] = "hold"
                 _hold_label = f"Listening (hold {holdkey.get()})"
                 listener.start_hold(
                     holdkey.get(),
@@ -1241,6 +1613,7 @@ def main() -> None:
                 )
                 status_var.set(_hold_label)
             elif mode.get() == "toggle":
+                _runtime_mode["value"] = "toggle"
                 _toggle_label = f"Listening (toggle {hotkey.get()})"
                 listener.start_toggle(
                     hotkey.get(),
@@ -1253,16 +1626,21 @@ def main() -> None:
                 )
                 status_var.set(_toggle_label)
             elif mode.get() == "wake":
+                _runtime_mode["value"] = "wake"
                 _start_wake_word()
                 status_var.set("Wake word active (say 'vera')")
             else:
+                _runtime_mode["value"] = "idle"
                 status_var.set("Timed mic mode (manual Run Now)")
         except Exception as exc:
-            messagebox.showerror("Listener Error", str(exc))
+            _runtime_mode["value"] = "idle"
+            status_var.set("Listener failed to start")
+            _show_inline_notice(f"Listener failed to start: {exc}", tone="error")
 
     def _stop_background():
         listener.stop()
         _stop_wake_word()
+        _runtime_mode["value"] = "idle"
         status_var.set("Idle")
 
     # --- Wake Word ---
@@ -1333,7 +1711,11 @@ def main() -> None:
                                 if not handle_transcript(command, allow_prompt=True, confirm_fn=_confirm_prompt, restart_fn=_do_restart):
                                     log_unmatched(command)
         except Exception as exc:
-            print(f"Wake word error: {exc}")
+            _runtime_mode["value"] = "idle"
+            root.after(0, lambda e=str(exc): (
+                status_var.set("Wake word listener failed"),
+                _show_inline_notice(f"Wake word listener failed: {e}", tone="error")
+            ))
 
     _wake_thread: list = [None]  # mutable container so inner functions can update it
 
@@ -1353,14 +1735,6 @@ def main() -> None:
             _wake_thread[0].join(timeout=2.0)
         _wake_thread[0] = None
 
-    def _toggle_wake_word():
-        if mode.get() == "wake":
-            listener.stop()
-            _start_wake_word()
-            status_var.set("Wake word active (say 'vera')")
-        else:
-            _stop_wake_word()
-
     # --- Setup Wizard ---
     def _run_wizard():
         state = {
@@ -1369,6 +1743,8 @@ def main() -> None:
             "seconds": seconds,
             "hotkey": hotkey,
             "holdkey": holdkey,
+            "hotkey_display": hotkey_display,
+            "holdkey_display": holdkey_display,
             "spotify_media": spotify_media,
             "spotify_requires": spotify_requires,
         }
@@ -1413,7 +1789,6 @@ def main() -> None:
             root.after(0, root.withdraw)
 
         def _exit_app(_=None):
-            save_config(_build_config())
             listener.stop()
             if tray_icon["icon"] is not None:
                 tray_icon["icon"].stop()
@@ -1421,7 +1796,6 @@ def main() -> None:
 
         def _restart_app(_=None):
             try:
-                save_config(_build_config())
                 listener.stop()
                 if tray_icon["icon"] is not None:
                     tray_icon["icon"].stop()
@@ -1457,10 +1831,7 @@ def main() -> None:
         if tray_ready["ok"]:
             root.withdraw()
         else:
-            messagebox.showinfo(
-                "Tray Unavailable",
-                "System tray support isn't available. Install deps and restart.",
-            )
+            _notify_info("Tray Unavailable", "System tray support isn't available. Install deps and restart.")
 
     def _on_minimize(event):
         if root.state() == "iconic":
@@ -1480,10 +1851,10 @@ def main() -> None:
             try:
                 subprocess.check_call([sys.executable, "-m", "pip", "install", *deps])
                 status_var.set("Dependencies installed.")
-                messagebox.showinfo("Done", "Dependencies installed.")
+                _notify_info("Done", "Dependencies installed.")
             except Exception as exc:
                 status_var.set("Install failed.")
-                messagebox.showerror("Install Error", str(exc))
+                _notify_error("Install Error", str(exc))
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -1498,7 +1869,7 @@ def main() -> None:
             return
         description = description.strip()
         if not description:
-            messagebox.showwarning("Bug Report", "Description is required.")
+            _notify_info("Bug Report", "Description is required.")
             return
 
         user_dialog = ctk.CTkInputDialog(
@@ -1536,10 +1907,10 @@ def main() -> None:
                     os.remove(zip_path)
                 except Exception:
                     pass
-                messagebox.showinfo("Bug Report", "No config or log file found yet.")
+                _notify_info("Bug Report", "No config or log file found yet.")
                 return
         except Exception as exc:
-            messagebox.showerror("Bug Report Error", str(exc))
+            _notify_error("Bug Report Error", str(exc))
             return
 
         # ── Submit to Discord bot ─────────────────────────────────────────────
@@ -1570,18 +1941,18 @@ def main() -> None:
                 pass
 
         if ticket_url:
-            messagebox.showinfo(
+            _notify_info(
                 "Bug Report Submitted",
-                f"Ticket created! You can follow up here:\n{ticket_url}\n\nLog saved locally:\n{zip_path}"
+                f"Ticket created! Follow up here:\n{ticket_url}\n\nLog saved locally:\n{zip_path}"
             )
         else:
-            messagebox.showinfo("Bug Report", f"Saved locally:\n{zip_path}")
+            _notify_info("Bug Report", f"Saved locally:\n{zip_path}")
             try:
                 os.startfile(logs_dir)
             except Exception:
                 pass
 
-        if messagebox.askyesno("Bug Report", "Would you like to clear the current logs to save space?"):
+        if _confirm_dialog("Bug Report", "Would you like to clear the current logs to save space?"):
             try:
                 for log_file in (log_path, transcripts_path):
                     if os.path.exists(log_file):
@@ -1592,7 +1963,7 @@ def main() -> None:
     def _export_transcripts():
         src = os.path.join(os.path.dirname(__file__), "data", "logs", "transcripts.log")
         if not os.path.exists(src):
-            messagebox.showinfo("Export Transcripts", "No transcript log found yet.")
+            _notify_info("Export Transcripts", "No transcript log found yet.")
             return
         from tkinter import filedialog
         dest = filedialog.asksaveasfilename(
@@ -1605,7 +1976,7 @@ def main() -> None:
             return
         import shutil
         shutil.copy2(src, dest)
-        messagebox.showinfo("Export Transcripts", f"Saved to:\n{dest}")
+        _notify_info("Export Transcripts", f"Saved to:\n{dest}")
 
     def _clear_pycache():
         base_dir = os.path.dirname(__file__)
@@ -1620,9 +1991,17 @@ def main() -> None:
                     except Exception:
                         pass
         if removed:
-            messagebox.showinfo("Cache Cleared", f"Removed {removed} __pycache__ folder(s).")
+            _notify_info("Cache Cleared", f"Removed {removed} __pycache__ folder(s).")
         else:
-            messagebox.showinfo("Cache Cleared", "No __pycache__ folders found.")
+            _notify_info("Cache Cleared", "No __pycache__ folders found.")
+
+    def _toggle_wake_word():
+        if mode.get() == "wake":
+            listener.stop()
+            _start_wake_word()
+            status_var.set("Wake word active (say 'vera')")
+        else:
+            _stop_wake_word()
 
     def _create_shortcuts():
         threading.Thread(target=_create_shortcuts_worker, daemon=True).start()
@@ -1660,9 +2039,9 @@ def main() -> None:
             if start_ok:
                 parts.append("Start Menu shortcut created.")
             parts.append("\nTo pin VERA to Start: search for VERA, look under the 'Apps' section (not 'Best match'), right-click it, and select 'Pin to Start'.")
-            messagebox.showinfo("Shortcuts Created", "\n".join(parts))
+            _notify_info("Shortcuts Created", "\n".join(parts))
         else:
-            messagebox.showerror("Shortcut Failed", "Could not create shortcuts. Try creating them manually.")
+            _notify_error("Shortcut Failed", "Could not create shortcuts. Try creating them manually.")
 
     # =========================================================================
     # =========================================================================
@@ -1675,6 +2054,8 @@ def main() -> None:
         "seconds": seconds,
         "hotkey": hotkey,
         "holdkey": holdkey,
+        "hotkey_display": hotkey_display,
+        "holdkey_display": holdkey_display,
         "search_engine": search_engine,
         "confirm_actions": confirm_actions,
         "ptt_beep_volume": ptt_beep_volume,
@@ -1715,6 +2096,7 @@ def main() -> None:
         "check_for_updates": _check_for_updates,
         "create_bug_report": _create_bug_report,
         "export_transcripts": _export_transcripts,
+        "mode_changed": _on_mode_change,
         "toggle_wake_word": _toggle_wake_word,
         "clear_pycache": _clear_pycache,
         "create_shortcuts": _create_shortcuts,
@@ -1750,7 +2132,39 @@ def main() -> None:
     discord_channels_textbox = widgets.get("discord_channels_textbox")
     discord_servers_textbox = widgets.get("discord_servers_textbox")
     keybinds_textbox = widgets.get("keybinds_textbox")
+    save_button = widgets.get("save_button")
+    notice_frame = widgets.get("notice_frame")
+    notice_label = widgets.get("notice_label")
+    notice_action_button = widgets.get("notice_action_button")
+    notice_close_button = widgets.get("notice_close_button")
+    update_frame = widgets.get("update_frame")
+    update_label = widgets.get("update_label")
+    update_action_button = widgets.get("update_action_button")
+    update_close_button = widgets.get("update_close_button")
+    loading_overlay = widgets.get("loading_overlay")
+    loading_progress = widgets.get("loading_progress")
+    record_backdrop = widgets.get("record_backdrop")
+    record_overlay = widgets.get("record_overlay")
+    record_title_label = widgets.get("record_title_label")
+    record_message_label = widgets.get("record_message_label")
+    record_status_label = widgets.get("record_status_label")
     transcript_history = []
+
+    if save_button is not None:
+        def _save_button_enter(_event=None):
+            try:
+                save_button.configure(text="Save changes")
+            except Exception:
+                pass
+
+        def _save_button_leave(_event=None):
+            try:
+                save_button.configure(text="Unsaved changes")
+            except Exception:
+                pass
+
+        save_button.bind("<Enter>", _save_button_enter)
+        save_button.bind("<Leave>", _save_button_leave)
 
     def _update_transcript(text: str):
         transcript_var.set(text)
@@ -1772,10 +2186,89 @@ def main() -> None:
     _refresh_discord_channels()
     _refresh_discord_servers()
     _refresh_keybinds()
-    if not cfg.get("wizard_done"):
-        _run_wizard()
-    else:
-        _start_background()
+    _saved_config_signature[0] = _config_signature()
+    for _var in (
+        theme_var,
+        mode,
+        language,
+        seconds,
+        hotkey,
+        holdkey,
+        search_engine,
+        ptt_beep_volume,
+        tts_output_device,
+        confirm_actions,
+        spotify_media,
+        spotify_requires,
+        spotify_keywords,
+        discord_bot_token_var,
+        discord_server_id_var,
+        gemini_api_key_var,
+    ):
+        _var.trace_add("write", _refresh_save_prompt)
+    _refresh_save_prompt()
+
+    if loading_overlay is not None:
+        loading_overlay.place(x=0, y=0, relwidth=1, relheight=1)
+        loading_overlay.lift()
+
+    def _animate_launch_reveal(on_done) -> None:
+        if loading_overlay is None or str(loading_overlay.winfo_manager()) != "place":
+            on_done()
+            return
+
+        root.update_idletasks()
+        total_height = max(root.winfo_height(), 1)
+        steps = 8
+        duration_ms = 180
+
+        def _step(index: int) -> None:
+            if loading_overlay is None or str(loading_overlay.winfo_manager()) != "place":
+                on_done()
+                return
+            progress = index / steps
+            eased = 1 - ((1 - progress) ** 2)
+            offset = -int(total_height * eased)
+            try:
+                loading_overlay.place_configure(x=0, y=offset, relwidth=1, relheight=1)
+            except Exception:
+                on_done()
+                return
+            if index >= steps:
+                try:
+                    loading_overlay.place_forget()
+                except Exception:
+                    pass
+                on_done()
+                return
+            root.after(max(1, duration_ms // steps), lambda: _step(index + 1))
+
+        _step(1)
+
+    def _finish_launch():
+        if loading_progress is not None:
+            try:
+                loading_progress.stop()
+            except Exception:
+                pass
+
+        def _after_reveal():
+            try:
+                root.lift()
+                root.focus_force()
+            except Exception:
+                pass
+            threading.Thread(target=_startup_update_check, daemon=True).start()
+            if _test_update_alert:
+                root.after(500, lambda: _show_update_notice("TEST", test=True))
+            if not cfg.get("wizard_done"):
+                _run_wizard()
+            else:
+                _start_background()
+
+        _animate_launch_reveal(_after_reveal)
+
+    root.after(500, _finish_launch)
 
     root.protocol("WM_DELETE_WINDOW", _on_close)
     root.bind("<Unmap>", _on_minimize)
@@ -1808,11 +2301,3 @@ if __name__ == "__main__":
             root.destroy()
         except Exception:
             pass
-
-
-
-
-
-
-
-

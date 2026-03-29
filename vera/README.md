@@ -59,6 +59,12 @@ The `ask <question>` command supports on-demand AI responses.
 
 Paste your key in the **Integrations** tab → AI API Key field.
 
+## UI
+
+- Notifications appear inline — no popups
+- Unsaved changes are indicated in the title bar
+- Key recording happens inside the window — no separate dialog
+
 ## Troubleshooting
 
 - **Nothing transcribed** — check Windows microphone permissions and input device

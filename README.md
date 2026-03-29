@@ -6,7 +6,7 @@ Offline personal voice assistant for Windows. No cloud, no API key required — 
 
 ## Installation
 
-1. Download the latest **VERA_Setup_x.x.x.exe** from the [Releases](../../releases) page
+1. Download the latest **VERA_Setup_0.90.0.exe** from the [Releases](../../releases) page
 2. Run it — Windows will ask for admin permission (needed to install a voice component)
 3. The installer will automatically download Python dependencies and the voice model (~310MB, one-time)
 4. Launch VERA from the desktop shortcut or Start Menu
