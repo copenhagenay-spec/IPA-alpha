@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.97.8.3
+- Fixed: clicking "Check Updates" no longer freezes VERA — update check and download now run in the background
+
 ## 0.97.8.2
 - Fixed: cancel/clear/delete reminders now recognized with more natural phrasings ("cancel reminders", "delete my reminders", "get rid of reminders", etc.)
 - Improved: Discord username is now required when submitting a bug report — you'll receive a ping in the server when your bug is confirmed and when it's fixed

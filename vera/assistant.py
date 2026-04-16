@@ -975,55 +975,63 @@ def main() -> None:
             pass
 
     def _check_for_updates():
-        current = _read_local_version()
-        try:
-            latest = _fetch_latest_version()
-        except Exception as exc:
-            _log_to_file(f"UPDATE_CHECK_FAILED: {exc}")
-            _notify_error("Update Failed", f"Could not check for updates.\n\n{exc}")
-            return
-        if not latest:
-            _notify_info("Update", "Could not check for updates (no connection).")
-            return
-        if _parse_version(latest) <= _parse_version(current):
-            _notify_info("Update", f"You're up to date (v{current}).")
-            return
-
-        if not _confirm_dialog("Update Available", f"Update to v{latest}?"):
-            return
-
-        try:
-            base_dir = os.path.dirname(__file__)
-            data_dir = os.path.join(base_dir, "data")
-            os.makedirs(data_dir, exist_ok=True)
-            backup_dir = os.path.join(data_dir, f"backup_{time.strftime('%Y%m%d_%H%M%S')}")
-            _backup_current_app(backup_dir)
-
-            zip_url = "https://github.com/copenhagenay-spec/Vera-beta/archive/refs/heads/main.zip"
-            zip_path = os.path.join(data_dir, "update.zip")
-            urllib.request.urlretrieve(zip_url, zip_path)
-            _apply_update_from_zip(zip_path)
+        def _do_check():
+            current = _read_local_version()
             try:
-                os.remove(zip_path)
-            except Exception:
-                pass
+                latest = _fetch_latest_version()
+            except Exception as exc:
+                _log_to_file(f"UPDATE_CHECK_FAILED: {exc}")
+                _bridge.post(lambda: _notify_error("Update Failed", f"Could not check for updates.\n\n{exc}"))
+                return
+            if not latest:
+                _bridge.post(lambda: _notify_info("Update", "Could not check for updates (no connection)."))
+                return
+            if _parse_version(latest) <= _parse_version(current):
+                _bridge.post(lambda: _notify_info("Update", f"You're up to date (v{current})."))
+                return
 
-            # Update VERA.exe launcher
-            exe_url = f"https://github.com/copenhagenay-spec/Vera-beta/releases/download/v{latest}/VERA.exe"
-            launcher_out = os.path.join(base_dir, "launcher_out", "VERA.exe")
-            if os.path.exists(os.path.dirname(launcher_out)):
-                try:
-                    urllib.request.urlretrieve(exe_url, launcher_out)
-                except Exception:
-                    pass
+            def _confirm_and_install():
+                if not _confirm_dialog("Update Available", f"Update to v{latest}?"):
+                    return
+                def _do_install():
+                    try:
+                        base_dir = os.path.dirname(__file__)
+                        data_dir = os.path.join(base_dir, "data")
+                        os.makedirs(data_dir, exist_ok=True)
+                        backup_dir = os.path.join(data_dir, f"backup_{time.strftime('%Y%m%d_%H%M%S')}")
+                        _backup_current_app(backup_dir)
 
-            _notify_info("Update", "Update installed. Restarting VERA...")
-            _release_mutex()
-            script_path = os.path.abspath(__file__)
-            subprocess.Popen([sys.executable, script_path])
-            os._exit(0)
-        except Exception as exc:
-            _notify_error("Update Failed", str(exc))
+                        zip_url = "https://github.com/copenhagenay-spec/Vera-beta/archive/refs/heads/main.zip"
+                        zip_path = os.path.join(data_dir, "update.zip")
+                        urllib.request.urlretrieve(zip_url, zip_path)
+                        _apply_update_from_zip(zip_path)
+                        try:
+                            os.remove(zip_path)
+                        except Exception:
+                            pass
+
+                        # Update VERA.exe launcher
+                        exe_url = f"https://github.com/copenhagenay-spec/Vera-beta/releases/download/v{latest}/VERA.exe"
+                        launcher_out = os.path.join(base_dir, "launcher_out", "VERA.exe")
+                        if os.path.exists(os.path.dirname(launcher_out)):
+                            try:
+                                urllib.request.urlretrieve(exe_url, launcher_out)
+                            except Exception:
+                                pass
+
+                        _bridge.post(lambda: _notify_info("Update", "Update installed. Restarting VERA..."))
+                        import time as _time; _time.sleep(1.5)
+                        _release_mutex()
+                        script_path = os.path.abspath(__file__)
+                        subprocess.Popen([sys.executable, script_path])
+                        os._exit(0)
+                    except Exception as exc:
+                        _bridge.post(lambda: _notify_error("Update Failed", str(exc)))
+                threading.Thread(target=_do_install, daemon=True).start()
+
+            _bridge.post(_confirm_and_install)
+
+        threading.Thread(target=_do_check, daemon=True).start()
 
     def _startup_update_check():
         try:
