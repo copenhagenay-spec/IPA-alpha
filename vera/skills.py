@@ -1384,7 +1384,7 @@ def _run_macro(sequence: str, count: int = 1) -> bool:
 
 def _send_message(text: str) -> bool:
     try:
-        from pynput import KbController as Controller, Key  # type: ignore
+        from pynput.keyboard import Controller as Controller, Key  # type: ignore
         time.sleep(0.3)
         ctl = Controller()
         ctl.type(text)
@@ -1400,7 +1400,7 @@ def _send_message(text: str) -> bool:
 
 def _type_text(text: str) -> bool:
     try:
-        from pynput import KbController as Controller  # type: ignore
+        from pynput.keyboard import Controller as Controller  # type: ignore
         time.sleep(0.3)
         Controller().type(text)
         _log_event(f"TYPE_TEXT: {text}")
@@ -2773,7 +2773,7 @@ def _ih_clipboard_clear(m, t, allow_prompt, confirm_fn, restart_fn):
 def _ih_clipboard_paste(m, t, allow_prompt, confirm_fn, restart_fn):
     try:
         import time as _time
-        from pynput import KbController as _KbCtrl, Key as _Key
+        from pynput.keyboard import Controller as _KbCtrl, Key as _Key
         _vera_confirm("default")
         _time.sleep(0.5)  # let focus return to target window before keystroke
         _kb = _KbCtrl()

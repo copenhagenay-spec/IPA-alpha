@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.98.0.1
+- Fixed: "type" and "send message" commands failing with "cannot import name KbController" — public build import was broken after sync
+
 ## 0.98
 - Added: Fuzzy intent routing — VERA now catches misheard commands that slip past exact matching; high-confidence mishears fire silently, mid-confidence triggers a "Did you mean X?" confirmation; confirmed matches auto-log to mishear training
 - Added: Custom wake phrase (Premium) — set your own trigger word alongside "vera" in Settings → Personality; updates live without restart
