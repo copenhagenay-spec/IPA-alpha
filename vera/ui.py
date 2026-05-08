@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QStackedWidget, QScrollArea, QFrame, QProgressBar, QSizePolicy,
     QSpacerItem,
 )
-from PySide6.QtCore import Qt, Signal, QObject, QSize, QUrl
+from PySide6.QtCore import Qt, Signal, QObject, QSize, QUrl, QTimer
 from PySide6.QtGui import QFont, QPixmap, QColor, QIcon, QPainter
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink
 
@@ -2062,18 +2062,46 @@ def build_ui(window, state: dict, callbacks: dict, constants: dict):
     outer_vl.addWidget(status_frame)
 
     # Wire status_var to label
-    def _update_status_label(text: str):
+    _indicator_style_cache = [None]
+    _status_last_update = [0.0]
+    _status_pending = [None]
+    _status_timer = QTimer()
+    _status_timer.setSingleShot(True)
+
+    def _apply_status_label(text: str):
         status_label.setText(text)
-        status_var.set(text)
         s = text.lower()
         if "recording" in s:
-            _indicator.setStyleSheet("font-size: 14px; color: #e74c3c;")
+            style = "font-size: 14px; color: #e74c3c;"
         elif "listening" in s or "wake" in s:
-            _indicator.setStyleSheet("font-size: 14px; color: #2ecc71;")
+            style = "font-size: 14px; color: #2ecc71;"
         elif "processing" in s or "installing" in s or "downloading" in s:
-            _indicator.setStyleSheet("font-size: 14px; color: #3498db;")
+            style = "font-size: 14px; color: #3498db;"
         else:
-            _indicator.setStyleSheet("font-size: 14px; color: gray;")
+            style = "font-size: 14px; color: gray;"
+        if style != _indicator_style_cache[0]:
+            _indicator.setStyleSheet(style)
+            _indicator_style_cache[0] = style
+
+    def _flush_status():
+        if _status_pending[0] is not None:
+            _apply_status_label(_status_pending[0])
+            _status_pending[0] = None
+
+    _status_timer.timeout.connect(_flush_status)
+
+    def _update_status_label(text: str):
+        import time as _t
+        status_var.set(text)
+        now = _t.monotonic()
+        if now - _status_last_update[0] >= 0.1:
+            _status_last_update[0] = now
+            _apply_status_label(text)
+            _status_pending[0] = None
+        else:
+            _status_pending[0] = text
+            if not _status_timer.isActive():
+                _status_timer.start(100)
 
     status_var._ui_update = _update_status_label
     status_var.trace_add("write", lambda *_: _update_status_label(status_var.get()))

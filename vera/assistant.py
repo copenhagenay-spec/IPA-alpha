@@ -2010,8 +2010,11 @@ def main() -> None:
             _idle_timer["handle"] = None
             if not idle_chatter.get():
                 return
-            from skills import _gaming_mode as _gm
+            from skills import _gaming_mode as _gm, _tts_idle
             if _gm["value"]:
+                return
+            if not _tts_idle.is_set():
+                _reset_idle_timer()
                 return
             def _speak():
                 from skills import _tts_speak
@@ -2967,6 +2970,97 @@ def main() -> None:
         _animate_launch_reveal(_after_reveal)
 
     QTimer.singleShot(500, _finish_launch)
+
+    # Shared state between power watcher and wake logger
+    _wake_event = threading.Event()
+
+    def _wake_logger():
+        """After every wake, log RSS every 5 seconds for 3 minutes."""
+        import psutil
+        log_dir = os.path.join(os.path.dirname(__file__), "data", "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, "memory_watchdog.log")
+        proc = psutil.Process()
+        while True:
+            _wake_event.wait()
+            _wake_event.clear()
+            deadline = time.monotonic() + 180  # 3 minutes of burst logging
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(f"\n--- WAKE EVENT {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+            except Exception:
+                pass
+            while time.monotonic() < deadline:
+                time.sleep(5)
+                try:
+                    mb = proc.memory_info().rss / 1024 / 1024
+                except Exception:
+                    break
+                label = " — AUTO RESTART TRIGGERED" if mb > 2000 else ""
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(f"  {time.strftime('%H:%M:%S')} | RSS: {mb:.1f} MB{label}\n")
+                except Exception:
+                    pass
+                if mb > 2000:
+                    _bridge.post(lambda: QTimer.singleShot(0, _do_restart))
+                    return
+
+    threading.Thread(target=_wake_logger, daemon=True).start()
+
+    # Restart VERA automatically on system wake from sleep.
+    # Uses PowerRegisterSuspendResumeNotification (powrprof.dll) — a direct OS callback
+    # that fires reliably for all sleep/wake events without needing a window or Qt loop.
+    _wake_restart_pending = [False]
+
+    def _start_power_watcher():
+        import ctypes
+        import ctypes.wintypes
+
+        PBT_APMRESUMESUSPEND   = 0x0007
+        PBT_APMRESUMEAUTOMATIC = 0x0012
+        DEVICE_NOTIFY_CALLBACK = 0x2
+
+        CALLBACK_PROTO = ctypes.WINFUNCTYPE(
+            ctypes.wintypes.ULONG,
+            ctypes.c_void_p,
+            ctypes.wintypes.ULONG,
+            ctypes.c_void_p,
+        )
+
+        @CALLBACK_PROTO
+        def _power_callback(context, ptype, setting):
+            if ptype in (PBT_APMRESUMESUSPEND, PBT_APMRESUMEAUTOMATIC):
+                _wake_event.set()  # kick off burst logging immediately
+                if not _wake_restart_pending[0]:
+                    _wake_restart_pending[0] = True
+                    _bridge.post(lambda: QTimer.singleShot(2000, _do_restart))
+            return 0
+
+        class _DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS(ctypes.Structure):
+            _fields_ = [
+                ("Callback", CALLBACK_PROTO),
+                ("Context",  ctypes.c_void_p),
+            ]
+
+        params = _DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS()
+        params.Callback = _power_callback
+        params.Context  = None
+
+        registration = ctypes.c_void_p()
+        try:
+            ctypes.windll.powrprof.PowerRegisterSuspendResumeNotification(
+                DEVICE_NOTIFY_CALLBACK,
+                ctypes.byref(params),
+                ctypes.byref(registration),
+            )
+        except Exception:
+            pass
+
+        # Keep ctypes objects alive for the lifetime of the process
+        _start_power_watcher._refs = (_power_callback, params, registration)
+
+    _start_power_watcher()
 
     root.show()
     _start_tray()

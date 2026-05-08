@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.99.6
+- Fixed: Memory leak causing VERA to consume 9-16GB of RAM during long sessions — status bar was allocating Qt style objects on every update without releasing them
+- Fixed: Status updates now throttled to prevent burst allocation during rapid state changes
+- Fixed: VERA now automatically restarts cleanly on system wake from sleep using a direct Windows power notification callback — eliminates memory spike caused by audio device reconnection on wake
+
 ## 0.99.5
 - Added: About tab — shows version number and Forjem Software LLC copyright; info icon in sidebar rail; card follows active theme
 - Added: Installer banner — custom branded sidebar image with VERA logo and Forjem Software LLC copyright

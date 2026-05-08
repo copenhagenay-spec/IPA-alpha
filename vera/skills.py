@@ -141,12 +141,15 @@ def _kokoro_tts_play(text: str) -> None:
         try:
             import pyttsx3  # type: ignore
             engine = pyttsx3.init()
-            voices = engine.getProperty("voices")
-            female = next((v for v in voices if "zira" in v.name.lower()), None)
-            if female:
-                engine.setProperty("voice", female.id)
-            engine.say(text)
-            engine.runAndWait()
+            try:
+                voices = engine.getProperty("voices")
+                female = next((v for v in voices if "zira" in v.name.lower()), None)
+                if female:
+                    engine.setProperty("voice", female.id)
+                engine.say(text)
+                engine.runAndWait()
+            finally:
+                engine.stop()
         except Exception as e2:
             _log_event(f"TTS_FALLBACK_ERROR: {e2}")
 
